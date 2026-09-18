@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
 import com.ainews.android.data.NewsRepository
+import com.ainews.android.data.StoryDetailSection
 import com.ainews.android.ui.AiNewsApp
 
 class MainActivity : ComponentActivity() {
@@ -31,7 +32,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun selectIntentStory() {
-        intent?.getStringExtra(EXTRA_STORY_ID)?.let(NewsRepository::selectStory)
+        intent?.getStringExtra(EXTRA_STORY_ID)?.let { storyId ->
+            val section = intent
+                ?.getStringExtra(EXTRA_STORY_SECTION)
+                ?.let { runCatching { StoryDetailSection.valueOf(it) }.getOrNull() }
+                ?: StoryDetailSection.Story
+            NewsRepository.selectStory(storyId, section)
+        }
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -47,5 +54,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_STORY_ID = "com.ainews.android.extra.STORY_ID"
+        const val EXTRA_STORY_SECTION = "com.ainews.android.extra.STORY_SECTION"
     }
 }

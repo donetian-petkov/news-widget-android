@@ -44,6 +44,13 @@ enum class WidgetTypographyMode {
     Large,
 }
 
+enum class StoryDetailSection {
+    Story,
+    Summary,
+    Research,
+    Translation,
+}
+
 data class WidgetPreset(
     val id: String,
     val name: String,
@@ -121,6 +128,8 @@ data class NewsStory(
     val isNew: Boolean,
     val isHidden: Boolean = false,
     val hiddenAt: Long? = null,
+    val isPinned: Boolean = false,
+    val pinnedAt: Long? = null,
     val neutralTitle: String? = null,
     val translation: String? = null,
     val research: String? = null,
@@ -169,6 +178,7 @@ data class NewsUiState(
     val feedTitle: String = "Top Stories",
     val stories: List<NewsStory> = emptyList(),
     val selectedStoryId: String? = null,
+    val selectedStorySection: StoryDetailSection = StoryDetailSection.Story,
     val selectedTopic: String? = null,
     val monitors: List<NewsMonitor> = emptyList(),
     val alertMatches: List<AlertMatch> = emptyList(),
@@ -194,7 +204,8 @@ data class NewsUiState(
         get() {
             val alertStoryIds = alertMatches.map { it.storyId }.toSet()
             return visibleStories.sortedWith(
-                compareByDescending<NewsStory> { it.id in alertStoryIds }
+                compareByDescending<NewsStory> { it.isPinned }
+                    .thenByDescending { it.id in alertStoryIds }
                     .thenByDescending { it.publishedAt },
             )
         }

@@ -98,7 +98,9 @@ object NewsRepository {
             appContext,
             AiNewsDatabase::class.java,
             "ai-news.db",
-        ).build()
+        )
+            .addMigrations(AiNewsDatabase.MIGRATION_1_2)
+            .build()
 
         storyDao = database.storyDao()
         runtimePreferences = RuntimePreferences(appContext)
@@ -150,8 +152,8 @@ object NewsRepository {
         val feedSources: List<FeedSource>,
     )
 
-    fun selectStory(storyId: String?) {
-        _state.update { it.copy(selectedStoryId = storyId, message = null) }
+    fun selectStory(storyId: String?, section: StoryDetailSection = StoryDetailSection.Story) {
+        _state.update { it.copy(selectedStoryId = storyId, selectedStorySection = section, message = null) }
     }
 
     fun selectTopic(topic: String?) {
@@ -585,6 +587,27 @@ object NewsRepository {
                     }
                 },
                 message = "Story hidden",
+            )
+        }
+    }
+
+    fun togglePinned(storyId: String) {
+        _state.update { current ->
+            val story = current.stories.firstOrNull { it.id == storyId } ?: return@update current
+            val nextPinned = !story.isPinned
+            val pinnedAt = if (nextPinned) System.currentTimeMillis() else null
+            repositoryScope.launch {
+                storyDao.setPinned(storyId, nextPinned, pinnedAt)
+            }
+            current.copy(
+                stories = current.stories.map {
+                    if (it.id == storyId) {
+                        it.copy(isPinned = nextPinned, pinnedAt = pinnedAt)
+                    } else {
+                        it
+                    }
+                },
+                message = if (nextPinned) "Story pinned" else "Story unpinned",
             )
         }
     }

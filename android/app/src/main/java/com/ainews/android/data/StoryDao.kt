@@ -29,6 +29,9 @@ interface StoryDao {
     @Query("UPDATE stories SET isHidden = 0, hiddenAt = NULL WHERE id = :storyId")
     fun restoreStory(storyId: String)
 
+    @Query("UPDATE stories SET isPinned = :isPinned, pinnedAt = :pinnedAt WHERE id = :storyId")
+    fun setPinned(storyId: String, isPinned: Boolean, pinnedAt: Long?)
+
     @Query(
         """
         UPDATE stories

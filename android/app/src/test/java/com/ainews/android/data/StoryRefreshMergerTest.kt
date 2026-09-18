@@ -20,6 +20,17 @@ class StoryRefreshMergerTest {
     }
 
     @Test
+    fun preservesPinnedStateForFetchedStories() {
+        val previous = listOf(story("one").copy(isPinned = true, pinnedAt = 99))
+        val fetched = listOf(story("one"))
+
+        val result = StoryRefreshMerger.merge(previous, fetched)
+
+        assertTrue(result.stories.single().isPinned)
+        assertEquals(99L, result.stories.single().pinnedAt)
+    }
+
+    @Test
     fun marksOnlyNewIdsAsNewWhenStorySetChanges() {
         val previous = listOf(story("one"), story("two"))
         val fetched = listOf(story("two"), story("three"))

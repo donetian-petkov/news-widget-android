@@ -72,6 +72,7 @@ import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.NewsStory
 import com.ainews.android.data.NewsUiState
 import com.ainews.android.data.RuntimeSettings
+import com.ainews.android.data.StoryDetailSection
 import com.ainews.android.data.WIDGET_ALL_FEEDS
 import com.ainews.android.data.WidgetBackgroundMode
 import com.ainews.android.data.WidgetDensityMode
@@ -198,9 +199,14 @@ fun AiNewsApp() {
             } else if (selectedStory != null) {
                 StoryDetail(
                     story = selectedStory,
+                    section = state.selectedStorySection,
                     onBack = { NewsRepository.selectStory(null) },
                     onHide = {
                         NewsRepository.hideStory(selectedStory.id)
+                        scope.launch { NewsWidget().updateAll(context) }
+                    },
+                    onTogglePin = {
+                        NewsRepository.togglePinned(selectedStory.id)
                         scope.launch { NewsWidget().updateAll(context) }
                     },
                     onShare = { shareStory(context, selectedStory) },
@@ -255,6 +261,10 @@ fun AiNewsApp() {
                         NewsRepository.hideStory(it)
                         scope.launch { NewsWidget().updateAll(context) }
                     },
+                    onTogglePinStory = {
+                        NewsRepository.togglePinned(it)
+                        scope.launch { NewsWidget().updateAll(context) }
+                    },
                     onShareStory = { shareStory(context, it) },
                 )
             }
@@ -281,6 +291,7 @@ private fun NewsFeed(
     onUseLocalAi: () -> Unit,
     onOpenStory: (String) -> Unit,
     onHideStory: (String) -> Unit,
+    onTogglePinStory: (String) -> Unit,
     onShareStory: (NewsStory) -> Unit,
 ) {
     LazyColumn(
@@ -315,6 +326,7 @@ private fun NewsFeed(
                 story = story,
                 onOpen = { onOpenStory(story.id) },
                 onHide = { onHideStory(story.id) },
+                onTogglePin = { onTogglePinStory(story.id) },
                 onShare = { onShareStory(story) },
             )
         }
@@ -1508,6 +1520,7 @@ private fun StoryCard(
     story: NewsStory,
     onOpen: () -> Unit,
     onHide: () -> Unit,
+    onTogglePin: () -> Unit,
     onShare: () -> Unit,
 ) {
     Card(
@@ -1537,6 +1550,9 @@ private fun StoryCard(
                 }
                 if (isAlert) {
                     Badge("ALERT", Color(0xFFFEE2E2), Color(0xFF991B1B))
+                }
+                if (story.isPinned) {
+                    Badge("PIN", Color(0xFFFDE68A), Color(0xFF92400E))
                 }
             }
 
@@ -1577,6 +1593,9 @@ private fun StoryCard(
                 TextButton(onClick = onHide) {
                     Text("Hide")
                 }
+                TextButton(onClick = onTogglePin) {
+                    Text(if (story.isPinned) "Unpin" else "Pin")
+                }
                 TextButton(onClick = onOpen) {
                     Text("Open")
                 }
@@ -1588,10 +1607,13 @@ private fun StoryCard(
 @Composable
 private fun StoryDetail(
     story: NewsStory,
+    section: StoryDetailSection,
     onBack: () -> Unit,
     onHide: () -> Unit,
+    onTogglePin: () -> Unit,
     onShare: () -> Unit,
 ) {
+    val detailBlocks = story.detailBlocks(section)
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier
@@ -1616,15 +1638,17 @@ private fun StoryDetail(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        item { DetailBlock("Summary", story.summary) }
+        detailBlocks.forEach { block ->
+            item { DetailBlock(block.title, block.body, highlighted = block.section == section && section != StoryDetailSection.Story) }
+        }
         story.imageUrl?.let { item { StoryImage(imageUrl = it) } }
-        story.neutralTitle?.let { item { DetailBlock("Neutral title", it) } }
-        story.translation?.let { item { DetailBlock("Translation", it) } }
-        story.research?.let { item { DetailBlock("Research", it) } }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onShare) {
                     Text("Share")
+                }
+                OutlinedButton(onClick = onTogglePin) {
+                    Text(if (story.isPinned) "Unpin story" else "Pin story")
                 }
                 OutlinedButton(onClick = onHide) {
                     Text("Hide story")
@@ -1635,10 +1659,12 @@ private fun StoryDetail(
 }
 
 @Composable
-private fun DetailBlock(title: String, body: String) {
+private fun DetailBlock(title: String, body: String, highlighted: Boolean = false) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(
+            containerColor = if (highlighted) Color(0xFFE0F2FE) else MaterialTheme.colorScheme.surface,
+        ),
+        border = BorderStroke(1.dp, if (highlighted) Color(0xFF38BDF8) else MaterialTheme.colorScheme.outlineVariant),
         shape = RoundedCornerShape(8.dp),
     ) {
         Column(Modifier.padding(14.dp)) {
@@ -1741,6 +1767,29 @@ private fun NewsStory.storyMetaLine(): String =
         topicLabels.take(2).joinToString(", ").takeIf { it.isNotBlank() },
         "AI".takeIf { aiFieldsAvailable },
     ).joinToString(" - ")
+
+private data class StoryDetailBlock(
+    val section: StoryDetailSection,
+    val title: String,
+    val body: String,
+)
+
+private fun NewsStory.detailBlocks(selectedSection: StoryDetailSection): List<StoryDetailBlock> {
+    val blocks = buildList {
+        add(StoryDetailBlock(StoryDetailSection.Summary, "Summary", summary))
+        neutralTitle?.takeIf { it.isNotBlank() }?.let {
+            add(StoryDetailBlock(StoryDetailSection.Story, "Neutral title", it))
+        }
+        research?.takeIf { it.isNotBlank() }?.let {
+            add(StoryDetailBlock(StoryDetailSection.Research, "Research", it))
+        }
+        translation?.takeIf { it.isNotBlank() }?.let {
+            add(StoryDetailBlock(StoryDetailSection.Translation, "Translation", it))
+        }
+    }
+    if (selectedSection == StoryDetailSection.Story) return blocks
+    return blocks.sortedBy { if (it.section == selectedSection) 0 else 1 }
+}
 
 private fun formatStoryTime(epochMillis: Long): String =
     runCatching {

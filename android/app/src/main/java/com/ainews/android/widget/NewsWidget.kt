@@ -45,10 +45,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ainews.android.MainActivity
 import com.ainews.android.R
 import com.ainews.android.data.FetchStatus
 import com.ainews.android.data.NewsStory
 import com.ainews.android.data.NewsRepository
+import com.ainews.android.data.StoryDetailSection
 import com.ainews.android.data.WidgetBackgroundMode
 import com.ainews.android.data.WidgetDensityMode
 import com.ainews.android.data.WidgetLayoutMode
@@ -284,6 +286,13 @@ class NewsWidget : GlanceAppWidget() {
                                     ),
                                 )
                                 WidgetIconButton(
+                                    iconRes = R.drawable.ic_pin,
+                                    contentDescription = if (story.isPinned) "Unpin story" else "Pin story",
+                                    action = actionRunCallback<TogglePinStoryAction>(
+                                        actionParametersOf(storyIdKey to story.id),
+                                    ),
+                                )
+                                WidgetIconButton(
                                     iconRes = R.drawable.ic_hide,
                                     contentDescription = "Hide story",
                                     action = actionRunCallback<HideStoryAction>(
@@ -303,6 +312,42 @@ class NewsWidget : GlanceAppWidget() {
                                         contentDescription = "Share story",
                                         action = actionRunCallback<ShareStoryAction>(
                                             actionParametersOf(storyIdKey to story.id),
+                                        ),
+                                    )
+                                }
+                            }
+                            Row(horizontalAlignment = Alignment.Start) {
+                                WidgetIconButton(
+                                    iconRes = R.drawable.ic_summary,
+                                    contentDescription = "Open summary",
+                                    action = actionRunCallback<OpenStorySectionAction>(
+                                        actionParametersOf(
+                                            storyIdKey to story.id,
+                                            storySectionKey to StoryDetailSection.Summary.name,
+                                        ),
+                                    ),
+                                )
+                                if (!story.research.isNullOrBlank()) {
+                                    WidgetIconButton(
+                                        iconRes = R.drawable.ic_research,
+                                        contentDescription = "Open research",
+                                        action = actionRunCallback<OpenStorySectionAction>(
+                                            actionParametersOf(
+                                                storyIdKey to story.id,
+                                                storySectionKey to StoryDetailSection.Research.name,
+                                            ),
+                                        ),
+                                    )
+                                }
+                                if (!story.translation.isNullOrBlank()) {
+                                    WidgetIconButton(
+                                        iconRes = R.drawable.ic_translation,
+                                        contentDescription = "Open translation",
+                                        action = actionRunCallback<OpenStorySectionAction>(
+                                            actionParametersOf(
+                                                storyIdKey to story.id,
+                                                storySectionKey to StoryDetailSection.Translation.name,
+                                            ),
                                         ),
                                     )
                                 }
@@ -674,6 +719,32 @@ class HideStoryAction : ActionCallback {
     }
 }
 
+class TogglePinStoryAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        parameters[storyIdKey]?.let(NewsRepository::togglePinned)
+        NewsWidget().updateAll(context)
+    }
+}
+
+class OpenStorySectionAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val storyId = parameters[storyIdKey] ?: return
+        val section = parameters[storySectionKey] ?: StoryDetailSection.Story.name
+        val intent = openAppIntent(context)
+            .putExtra(MainActivity.EXTRA_STORY_ID, storyId)
+            .putExtra(MainActivity.EXTRA_STORY_SECTION, section)
+        context.startActivity(intent)
+    }
+}
+
 class OpenStoryAction : ActionCallback {
     override suspend fun onAction(
         context: Context,
@@ -720,11 +791,13 @@ class ShareStoryAction : ActionCallback {
 }
 
 private val storyIdKey = ActionParameters.Key<String>("story-id")
+private val storySectionKey = ActionParameters.Key<String>("story-section")
 
 private fun NewsStory.widgetTitle(isAlert: Boolean): String {
     val displayTitle = neutralTitle?.takeIf { it.isNotBlank() } ?: title
     return when {
         isAlert -> "ALERT: $displayTitle"
+        isPinned -> "PIN: $displayTitle"
         isNew -> "NEW: $displayTitle"
         else -> displayTitle
     }

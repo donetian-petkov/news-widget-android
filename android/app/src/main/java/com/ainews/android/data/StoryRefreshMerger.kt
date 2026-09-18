@@ -20,13 +20,17 @@ object StoryRefreshMerger {
         val previousIds = previousStories.map { it.id }.toSet()
         val fetchedIds = fetchedStories.map { it.id }.toSet()
         val hiddenById = previousStories.associateBy({ it.id }, { it.isHidden to it.hiddenAt })
+        val pinnedById = previousStories.associateBy({ it.id }, { it.isPinned to it.pinnedAt })
         val sameStorySet = fetchedIds == previousIds
         val mergedStories = fetchedStories.map { story ->
             val hiddenState = hiddenById[story.id]
+            val pinnedState = pinnedById[story.id]
             story.copy(
                 isNew = !sameStorySet && story.id !in previousIds,
                 isHidden = hiddenState?.first ?: false,
                 hiddenAt = hiddenState?.second,
+                isPinned = pinnedState?.first ?: false,
+                pinnedAt = pinnedState?.second,
             )
         }
         return StoryRefreshResult(mergedStories, sameStorySet)
