@@ -126,6 +126,19 @@ data class NewsStory(
     val research: String? = null,
 )
 
+val defaultNewsTopics = listOf(
+    "AI",
+    "AI policy",
+    "Bulgaria",
+    "EU",
+    "Energy",
+    "Infrastructure",
+    "Policy",
+    "Public health",
+    "Security",
+    "World",
+)
+
 data class NewsMonitor(
     val id: String,
     val sentence: String,
@@ -169,9 +182,11 @@ data class NewsUiState(
             .filter { story -> selectedTopic == null || selectedTopic in story.topicLabels }
 
     val availableTopics: List<String>
-        get() = stories
-            .filterNot { it.isHidden }
-            .flatMap { it.topicLabels }
+        get() = (
+            defaultNewsTopics + stories
+                .filterNot { it.isHidden }
+                .flatMap { it.topicLabels }
+            )
             .distinct()
             .sorted()
 

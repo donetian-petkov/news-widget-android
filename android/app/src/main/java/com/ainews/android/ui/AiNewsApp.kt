@@ -245,42 +245,48 @@ private fun NewsFeed(
     onHideStory: (String) -> Unit,
     onShareStory: (NewsStory) -> Unit,
 ) {
-    Column(
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier
             .fillMaxSize()
             .padding(18.dp),
     ) {
-        Header(
-            state = state,
-            onRefresh = onRefresh,
-            onPower = onPower,
-            onAi = onAi,
-            onSetTimeout = onSetTimeout,
-            onRestoreHidden = onRestoreHidden,
-            onScanMonitors = onScanMonitors,
-            onEnrich = onEnrich,
-            onSelectTopic = onSelectTopic,
-            onOpenSettings = onOpenSettings,
-            onOpenHidden = onOpenHidden,
-            onOpenMonitors = onOpenMonitors,
-            onOpenFeeds = onOpenFeeds,
-            onDismissOnboarding = onDismissOnboarding,
-            onUseLocalAi = onUseLocalAi,
-        )
+        item {
+            Header(
+                state = state,
+                onRefresh = onRefresh,
+                onPower = onPower,
+                onAi = onAi,
+                onSetTimeout = onSetTimeout,
+                onRestoreHidden = onRestoreHidden,
+                onScanMonitors = onScanMonitors,
+                onEnrich = onEnrich,
+                onSelectTopic = onSelectTopic,
+                onOpenSettings = onOpenSettings,
+                onOpenHidden = onOpenHidden,
+                onOpenMonitors = onOpenMonitors,
+                onOpenFeeds = onOpenFeeds,
+                onDismissOnboarding = onDismissOnboarding,
+                onUseLocalAi = onUseLocalAi,
+            )
+        }
 
-        Spacer(Modifier.height(14.dp))
+        items(state.prioritizedStories, key = { it.id }) { story ->
+            StoryCard(
+                isAlert = state.alertMatches.any { it.storyId == story.id },
+                story = story,
+                onOpen = { onOpenStory(story.id) },
+                onHide = { onHideStory(story.id) },
+                onShare = { onShareStory(story) },
+            )
+        }
 
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            items(state.prioritizedStories, key = { it.id }) { story ->
-                StoryCard(
-                    isAlert = state.alertMatches.any { it.storyId == story.id },
-                    story = story,
-                    onOpen = { onOpenStory(story.id) },
-                    onHide = { onHideStory(story.id) },
-                    onShare = { onShareStory(story) },
+        if (state.prioritizedStories.isEmpty()) {
+            item {
+                Text(
+                    text = "No visible stories",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF64748B),
                 )
             }
         }

@@ -25,7 +25,7 @@ fun setupChecklistItems(state: NewsUiState): List<SetupChecklistItem> =
         ),
         SetupChecklistItem(
             id = "ai",
-            title = "Choose AI mode or save a provider key",
-            complete = state.settings.aiProvider == AiProvider.LocalOnly || state.settings.providerKeySaved,
+            title = "Optional - choose AI enrichment mode",
+            complete = true,
         ),
     )

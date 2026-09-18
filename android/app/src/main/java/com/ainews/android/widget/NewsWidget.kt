@@ -10,6 +10,7 @@ import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
@@ -198,6 +199,11 @@ class NewsWidget : GlanceAppWidget() {
                                 ColorProvider(if (isAlert) palette.alertCard else palette.card),
                             )
                             .cornerRadius(8.dp)
+                            .clickable(
+                                actionRunCallback<OpenStoryAction>(
+                                    actionParametersOf(storyIdKey to story.id),
+                                ),
+                            )
                             .padding(metrics.cardPadding),
                     ) {
                         if (thumbnail == null) {
@@ -575,7 +581,11 @@ class OpenStoryAction : ActionCallback {
         NewsRepository.selectStory(storyId)
         val intent = Intent(context, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_STORY_ID, storyId)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP,
+            )
         }
         context.startActivity(intent)
     }

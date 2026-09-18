@@ -71,6 +71,13 @@ class RssFeedFetcher {
                                         current.imageUrl = current.imageUrl.ifBlank { url }
                                     }
                                 }
+
+                                "link" -> {
+                                    val href = parser.getAttributeValue(null, "href").orEmpty()
+                                    if (href.isNotBlank()) {
+                                        current.link = current.link.ifBlank { href }
+                                    }
+                                }
                             }
                         }
                     }

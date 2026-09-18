@@ -6,9 +6,9 @@ import org.junit.Test
 
 class SetupChecklistTest {
     @Test
-    fun checklistMarksAiCompleteForLocalOnlyMode() {
+    fun checklistTreatsAiAsOptionalForRssUse() {
         val state = NewsUiState(
-            settings = RuntimeSettings(aiProvider = AiProvider.LocalOnly),
+            settings = RuntimeSettings(aiProvider = AiProvider.OpenAI, providerKeySaved = false),
         )
 
         val aiItem = setupChecklistItems(state).first { it.id == "ai" }
@@ -23,5 +23,14 @@ class SetupChecklistTest {
         val storiesItem = setupChecklistItems(state).first { it.id == "stories" }
 
         assertFalse(storiesItem.complete)
+    }
+
+    @Test
+    fun availableTopicsAlwaysIncludeDefaults() {
+        val state = NewsUiState(stories = emptyList())
+
+        assertTrue("AI policy" in state.availableTopics)
+        assertTrue("World" in state.availableTopics)
+        assertTrue("Public health" in state.availableTopics)
     }
 }
