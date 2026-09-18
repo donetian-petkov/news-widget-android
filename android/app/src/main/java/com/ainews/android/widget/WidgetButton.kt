@@ -1,0 +1,51 @@
+package com.ainews.android.widget
+
+import android.content.Context
+import android.content.Intent
+import androidx.core.content.ContextCompat
+import androidx.glance.GlanceModifier
+import androidx.glance.action.Action
+import androidx.glance.action.clickable
+import androidx.glance.appwidget.cornerRadius
+import androidx.glance.background
+import androidx.glance.layout.Box
+import androidx.glance.layout.padding
+import androidx.glance.text.Text
+import androidx.glance.text.TextStyle
+import androidx.glance.unit.ColorProvider
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.ainews.android.MainActivity
+
+@androidx.compose.runtime.Composable
+fun WidgetButton(text: String, action: Action) {
+    Box(
+        modifier = GlanceModifier
+            .padding(end = 6.dp, bottom = 4.dp)
+            .background(ColorProvider(Color(0xFFE0F2FE)))
+            .cornerRadius(6.dp)
+            .clickable(action)
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+    ) {
+        Text(
+            text = text,
+            style = TextStyle(color = ColorProvider(Color(0xFF075985))),
+        )
+    }
+}
+
+fun shareFromWidget(context: Context, title: String, url: String) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, "$title\n$url")
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    ContextCompat.startActivity(
+        context,
+        Intent.createChooser(intent, "Share story").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        null,
+    )
+}
+
+fun openAppIntent(context: Context): Intent =
+    Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
