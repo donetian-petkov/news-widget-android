@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.LocalContext
+import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.appwidget.GlanceAppWidget
@@ -36,8 +37,15 @@ class NewsWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
             val state = NewsRepository.state.value
-            val stories = state.prioritizedStories.take(3)
-            val contextForActions = LocalContext.current
+            val size = LocalSize.current
+            val storyLimit = when {
+                size.width < 180.dp || size.height < 130.dp -> 1
+                size.height < 220.dp -> 3
+                else -> 5
+            }
+            val showSummary = size.width >= 260.dp && size.height >= 180.dp
+            val stories = state.prioritizedStories.take(storyLimit)
+            LocalContext.current
 
             Column(
                 modifier = GlanceModifier
@@ -95,6 +103,13 @@ class NewsWidget : GlanceAppWidget() {
                             style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
                             maxLines = 1,
                         )
+                        if (showSummary) {
+                            Text(
+                                text = story.summary,
+                                style = TextStyle(color = ColorProvider(Color(0xFF334155))),
+                                maxLines = 2,
+                            )
+                        }
                         Row(horizontalAlignment = Alignment.Start) {
                             WidgetButton(
                                 text = "Hide",
