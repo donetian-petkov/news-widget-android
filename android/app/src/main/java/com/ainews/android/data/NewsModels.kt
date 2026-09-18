@@ -58,7 +58,17 @@ data class NewsMonitor(
     val sentence: String,
     val enabled: Boolean = true,
     val lastMatchStoryId: String? = null,
+    val lastMatchConfidence: Double? = null,
     val lastMatchExplanation: String? = null,
+)
+
+data class AlertMatch(
+    val id: String,
+    val monitorId: String,
+    val storyId: String,
+    val confidence: Double,
+    val explanation: String,
+    val matchedAt: Long,
 )
 
 data class NewsUiState(
@@ -67,10 +77,20 @@ data class NewsUiState(
     val stories: List<NewsStory> = emptyList(),
     val selectedStoryId: String? = null,
     val monitors: List<NewsMonitor> = emptyList(),
+    val alertMatches: List<AlertMatch> = emptyList(),
     val message: String? = null,
 ) {
     val visibleStories: List<NewsStory>
         get() = stories.filterNot { it.isHidden }
+
+    val prioritizedStories: List<NewsStory>
+        get() {
+            val alertStoryIds = alertMatches.map { it.storyId }.toSet()
+            return visibleStories.sortedWith(
+                compareByDescending<NewsStory> { it.id in alertStoryIds }
+                    .thenByDescending { it.publishedAt },
+            )
+        }
 
     val selectedStory: NewsStory?
         get() = stories.firstOrNull { it.id == selectedStoryId }

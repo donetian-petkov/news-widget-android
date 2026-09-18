@@ -94,6 +94,10 @@ fun AiNewsApp() {
                         NewsRepository.restoreHidden()
                         scope.launch { NewsWidget().updateAll(context) }
                     },
+                    onScanMonitors = {
+                        NewsRepository.scanMonitorsNow()
+                        scope.launch { NewsWidget().updateAll(context) }
+                    },
                     onOpenStory = NewsRepository::selectStory,
                     onHideStory = {
                         NewsRepository.hideStory(it)
@@ -114,6 +118,7 @@ private fun NewsFeed(
     onAi: () -> Unit,
     onSetTimeout: (Long?) -> Unit,
     onRestoreHidden: () -> Unit,
+    onScanMonitors: () -> Unit,
     onOpenStory: (String) -> Unit,
     onHideStory: (String) -> Unit,
     onShareStory: (NewsStory) -> Unit,
@@ -130,6 +135,7 @@ private fun NewsFeed(
             onAi = onAi,
             onSetTimeout = onSetTimeout,
             onRestoreHidden = onRestoreHidden,
+            onScanMonitors = onScanMonitors,
         )
 
         Spacer(Modifier.height(14.dp))
@@ -138,8 +144,9 @@ private fun NewsFeed(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            items(state.visibleStories, key = { it.id }) { story ->
+            items(state.prioritizedStories, key = { it.id }) { story ->
                 StoryCard(
+                    isAlert = state.alertMatches.any { it.storyId == story.id },
                     story = story,
                     onOpen = { onOpenStory(story.id) },
                     onHide = { onHideStory(story.id) },
@@ -158,6 +165,7 @@ private fun Header(
     onAi: () -> Unit,
     onSetTimeout: (Long?) -> Unit,
     onRestoreHidden: () -> Unit,
+    onScanMonitors: () -> Unit,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -226,6 +234,10 @@ private fun Header(
             }
         }
 
+        OutlinedButton(onClick = onScanMonitors) {
+            Text("Scan monitors")
+        }
+
         state.message?.let {
             Text(
                 text = it,
@@ -241,14 +253,14 @@ private fun Header(
             }
         }
 
-        state.monitors.firstOrNull { it.lastMatchStoryId != null }?.let { monitor ->
+        state.monitors.filter { it.lastMatchStoryId != null }.forEach { monitor ->
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFE0F2FE)),
                 shape = RoundedCornerShape(8.dp),
             ) {
                 Column(Modifier.padding(12.dp)) {
                     Text(
-                        text = "Alert match",
+                        text = "Alert match ${monitor.lastMatchConfidence?.let { "${(it * 100).toInt()}%" } ?: ""}",
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF075985),
                     )
@@ -273,6 +285,7 @@ private fun Header(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StoryCard(
+    isAlert: Boolean,
     story: NewsStory,
     onOpen: () -> Unit,
     onHide: () -> Unit,
@@ -302,6 +315,9 @@ private fun StoryCard(
                 )
                 if (story.isNew) {
                     Badge("NEW", Color(0xFFDCFCE7), Color(0xFF166534))
+                }
+                if (isAlert) {
+                    Badge("ALERT", Color(0xFFFEE2E2), Color(0xFF991B1B))
                 }
             }
 

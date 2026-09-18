@@ -36,7 +36,7 @@ class NewsWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
             val state = NewsRepository.state.value
-            val stories = state.visibleStories.take(3)
+            val stories = state.prioritizedStories.take(3)
             val contextForActions = LocalContext.current
 
             Column(
@@ -81,7 +81,9 @@ class NewsWidget : GlanceAppWidget() {
                             .padding(vertical = 5.dp),
                     ) {
                         Text(
-                            text = if (story.isNew) "NEW - ${story.title}" else story.title,
+                            text = story.widgetTitle(
+                                isAlert = state.alertMatches.any { it.storyId == story.id },
+                            ),
                             style = TextStyle(
                                 color = ColorProvider(Color(0xFF0F172A)),
                                 fontWeight = FontWeight.Bold,
@@ -173,3 +175,10 @@ class ShareStoryAction : ActionCallback {
 }
 
 private val storyIdKey = ActionParameters.Key<String>("story-id")
+
+private fun com.ainews.android.data.NewsStory.widgetTitle(isAlert: Boolean): String =
+    when {
+        isAlert -> "ALERT - $title"
+        isNew -> "NEW - $title"
+        else -> title
+    }

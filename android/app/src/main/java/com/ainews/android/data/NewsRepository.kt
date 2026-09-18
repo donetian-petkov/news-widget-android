@@ -79,6 +79,7 @@ object NewsRepository {
                     id = "flu-bg",
                     sentence = "when flu vaccinations will be available to the public in Bulgaria",
                     lastMatchStoryId = "bg-health-1",
+                    lastMatchConfidence = 0.9,
                     lastMatchExplanation = "The top health story mentions expected public vaccination calendar availability.",
                 ),
             ),
@@ -312,6 +313,52 @@ object NewsRepository {
             current.copy(
                 stories = current.stories.map { it.copy(isHidden = false, hiddenAt = null) },
                 message = "Hidden stories restored",
+            )
+        }
+    }
+
+    fun scanMonitorsNow() {
+        val current = _state.value
+        val matches = current.monitors
+            .filter { it.enabled }
+            .mapNotNull { monitor ->
+                current.visibleStories
+                    .asSequence()
+                    .map { story -> story to MonitorMatcher.evaluate(monitor, story) }
+                    .filter { (_, decision) -> decision.matched }
+                    .maxByOrNull { (_, decision) -> decision.confidence }
+                    ?.let { (story, decision) ->
+                        AlertMatch(
+                            id = "${monitor.id}-${story.id}",
+                            monitorId = monitor.id,
+                            storyId = story.id,
+                            confidence = decision.confidence,
+                            explanation = decision.explanation,
+                            matchedAt = System.currentTimeMillis(),
+                        )
+                    }
+            }
+
+        _state.update { state ->
+            state.copy(
+                monitors = state.monitors.map { monitor ->
+                    val match = matches.firstOrNull { it.monitorId == monitor.id }
+                    if (match == null) {
+                        monitor
+                    } else {
+                        monitor.copy(
+                            lastMatchStoryId = match.storyId,
+                            lastMatchConfidence = match.confidence,
+                            lastMatchExplanation = match.explanation,
+                        )
+                    }
+                },
+                alertMatches = matches,
+                message = if (matches.isEmpty()) {
+                    "Monitor scan complete - no matches"
+                } else {
+                    "Monitor scan found ${matches.size} match"
+                },
             )
         }
     }
