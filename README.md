@@ -37,5 +37,16 @@ cd android
 gradle :app:assembleDebug
 ```
 
+## Install
+
+Download the latest debug APK from GitHub Releases, or install a local build:
+
+```bash
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+GitHub Actions also uploads `ai-news-debug-apk` on every push to `main`. Version
+tags like `v0.1.1-debug` publish `app-debug.apk` to that tag's release.
+
 For Pixel 9 setup and manual widget verification, see
 [`docs/pixel-9-verification.md`](docs/pixel-9-verification.md).
