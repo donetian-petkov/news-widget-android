@@ -20,6 +20,7 @@ import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
 import androidx.glance.layout.Alignment
+import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
@@ -35,9 +36,11 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ainews.android.MainActivity
 import com.ainews.android.R
+import com.ainews.android.data.FetchStatus
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.WidgetBackgroundMode
 import com.ainews.android.data.WidgetDensityMode
@@ -48,7 +51,6 @@ import com.ainews.android.data.effectiveWidgetFeedSourceIds
 import com.ainews.android.network.ImageDiskCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import androidx.compose.ui.unit.Dp
 
 class NewsWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -129,15 +131,19 @@ class NewsWidget : GlanceAppWidget() {
                     ),
                     maxLines = 1,
                 )
-                Text(
-                    text = state.runtime.statusText,
-                    style = TextStyle(color = ColorProvider(palette.body)),
-                    maxLines = 1,
-                )
 
                 Row(
-                    horizontalAlignment = Alignment.Start,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    StatusPill(
+                        text = compactStatusText(
+                            runtimeEnabled = state.runtime.runtimeEnabled,
+                            fetchEnabled = state.runtime.fetchEnabled,
+                            status = state.runtime.lastFetchStatus,
+                        ),
+                        healthy = state.runtime.runtimeEnabled && state.runtime.lastFetchStatus != FetchStatus.Failed,
+                        palette = palette,
+                    )
                     WidgetIconButton(
                         iconRes = R.drawable.ic_power,
                         contentDescription = if (state.runtime.runtimeEnabled) "Power off" else "Power on",
@@ -152,7 +158,7 @@ class NewsWidget : GlanceAppWidget() {
 
                 if (showMetrics) {
                     Text(
-                        text = "${allWidgetStories.size} stories - ${settings.widgetLayoutMode.name}",
+                        text = "${allWidgetStories.size} stories · ${settings.widgetLayoutMode.name} · ${settings.widgetDensityMode.name}",
                         style = TextStyle(color = ColorProvider(palette.muted)),
                         maxLines = 1,
                     )
@@ -271,6 +277,30 @@ class NewsWidget : GlanceAppWidget() {
 }
 
 @androidx.compose.runtime.Composable
+private fun StatusPill(
+    text: String,
+    healthy: Boolean,
+    palette: WidgetPalette,
+) {
+    Box(
+        modifier = GlanceModifier
+            .padding(end = 6.dp, bottom = 4.dp)
+            .background(ColorProvider(if (healthy) palette.statusPill else palette.warningPill))
+            .cornerRadius(10.dp)
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+    ) {
+        Text(
+            text = text,
+            style = TextStyle(
+                color = ColorProvider(if (healthy) palette.statusText else palette.warningText),
+                fontWeight = FontWeight.Bold,
+            ),
+            maxLines = 1,
+        )
+    }
+}
+
+@androidx.compose.runtime.Composable
 private fun StoryTextBlock(
     title: String,
     sourceLine: String,
@@ -312,6 +342,10 @@ private data class WidgetPalette(
     val alertTitle: Color,
     val body: Color,
     val muted: Color,
+    val statusPill: Color,
+    val statusText: Color,
+    val warningPill: Color,
+    val warningText: Color,
 )
 
 private data class WidgetMetrics(
@@ -372,6 +406,10 @@ private fun widgetPalette(
             alertTitle = Color(0xFF7F1D1D),
             body = Color(0xFF334155),
             muted = Color(0xFF64748B),
+            statusPill = Color(0xFFDCFCE7),
+            statusText = Color(0xFF166534),
+            warningPill = Color(0xFFFEE2E2),
+            warningText = Color(0xFF991B1B),
         )
 
         WidgetThemeMode.Dark -> WidgetPalette(
@@ -386,8 +424,28 @@ private fun widgetPalette(
             alertTitle = Color(0xFFFCA5A5),
             body = Color(0xFFE2E8F0),
             muted = Color(0xFF93A4B8),
+            statusPill = Color(0xFF123D33),
+            statusText = Color(0xFF86EFAC),
+            warningPill = Color(0xFF3B1724),
+            warningText = Color(0xFFFCA5A5),
         )
     }
+
+private fun compactStatusText(
+    runtimeEnabled: Boolean,
+    fetchEnabled: Boolean,
+    status: FetchStatus,
+): String {
+    val runtime = if (runtimeEnabled) "ON" else "OFF"
+    val fetch = when {
+        !fetchEnabled -> "Fetch off"
+        status == FetchStatus.Fetching -> "Fetching"
+        !runtimeEnabled -> "Paused"
+        status == FetchStatus.Failed -> "Failed"
+        else -> "Ready"
+    }
+    return "$runtime · $fetch"
+}
 
 class NewsWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = NewsWidget()
