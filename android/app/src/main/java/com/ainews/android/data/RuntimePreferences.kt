@@ -52,6 +52,9 @@ class RuntimePreferences(
                     ?.let { runCatching { WidgetBackgroundMode.valueOf(it) }.getOrNull() }
                     ?: WidgetBackgroundMode.Solid,
                 widgetStackIndex = ((prefs[Keys.widgetStackIndex] ?: 0).toInt()).coerceAtLeast(0),
+                widgetPresets = prefs[Keys.widgetPresetsJson]
+                    ?.let(RuntimePreferencesCodec::widgetPresetsFromJson)
+                    .orEmpty(),
             )
             runtime to settings
         }
@@ -102,6 +105,7 @@ class RuntimePreferences(
             prefs[Keys.widgetLayoutMode] = settings.widgetLayoutMode.name
             prefs[Keys.widgetBackgroundMode] = settings.widgetBackgroundMode.name
             prefs[Keys.widgetStackIndex] = settings.widgetStackIndex.toLong().coerceAtLeast(0)
+            prefs[Keys.widgetPresetsJson] = RuntimePreferencesCodec.widgetPresetsToJson(settings.widgetPresets)
         }
     }
 
@@ -141,6 +145,7 @@ class RuntimePreferences(
         val widgetLayoutMode = stringPreferencesKey("widget_layout_mode")
         val widgetBackgroundMode = stringPreferencesKey("widget_background_mode")
         val widgetStackIndex = longPreferencesKey("widget_stack_index")
+        val widgetPresetsJson = stringPreferencesKey("widget_presets_json")
         val monitorsJson = stringPreferencesKey("monitors_json")
         val feedSourcesJson = stringPreferencesKey("feed_sources_json")
     }

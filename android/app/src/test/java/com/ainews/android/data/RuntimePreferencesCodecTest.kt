@@ -54,4 +54,30 @@ class RuntimePreferencesCodecTest {
         assertEquals(defaultFeedSources, decoded)
         assertFalse(decoded.isEmpty())
     }
+
+    @Test
+    fun widgetPresetJsonRoundTripKeepsViewSettings() {
+        val presets = listOf(
+            WidgetPreset(
+                id = "preset-1",
+                name = "BBC Stack",
+                feedSourceId = "bbc-world",
+                layoutMode = WidgetLayoutMode.Stack,
+                backgroundMode = WidgetBackgroundMode.Transparent,
+            ),
+        )
+
+        val decoded = RuntimePreferencesCodec.widgetPresetsFromJson(
+            RuntimePreferencesCodec.widgetPresetsToJson(presets),
+        )
+
+        assertEquals(presets, decoded)
+    }
+
+    @Test
+    fun invalidWidgetPresetJsonFallsBackToEmptyList() {
+        val decoded = RuntimePreferencesCodec.widgetPresetsFromJson("{")
+
+        assertTrue(decoded.isEmpty())
+    }
 }

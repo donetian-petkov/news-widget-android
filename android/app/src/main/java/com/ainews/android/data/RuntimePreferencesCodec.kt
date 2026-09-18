@@ -74,4 +74,44 @@ object RuntimePreferencesCodec {
                 }
             }
         }.getOrDefault(defaultFeedSources)
+
+    fun widgetPresetsToJson(presets: List<WidgetPreset>): String {
+        val array = JSONArray()
+        presets.forEach { preset ->
+            array.put(
+                JSONObject()
+                    .put("id", preset.id)
+                    .put("name", preset.name)
+                    .put("feedSourceId", preset.feedSourceId)
+                    .put("layoutMode", preset.layoutMode.name)
+                    .put("backgroundMode", preset.backgroundMode.name),
+            )
+        }
+        return array.toString()
+    }
+
+    fun widgetPresetsFromJson(value: String): List<WidgetPreset> =
+        runCatching {
+            val array = JSONArray(value)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val name = item.optString("name").trim()
+                    if (name.isBlank()) continue
+                    add(
+                        WidgetPreset(
+                            id = item.optString("id").ifBlank { "widget-${name.hashCode()}" },
+                            name = name,
+                            feedSourceId = item.optString("feedSourceId").ifBlank { WIDGET_ALL_FEEDS },
+                            layoutMode = item.optString("layoutMode")
+                                .let { runCatching { WidgetLayoutMode.valueOf(it) }.getOrNull() }
+                                ?: WidgetLayoutMode.Column,
+                            backgroundMode = item.optString("backgroundMode")
+                                .let { runCatching { WidgetBackgroundMode.valueOf(it) }.getOrNull() }
+                                ?: WidgetBackgroundMode.Solid,
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
 }

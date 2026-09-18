@@ -201,6 +201,7 @@ object NewsRepository {
     }
 
     fun updateSettings(settings: RuntimeSettings) {
+        val feedSources = _state.value.feedSources
         val normalized = settings.copy(
             fetchCadenceMinutes = settings.fetchCadenceMinutes.coerceAtLeast(15),
             monitorScanHour = settings.monitorScanHour.coerceIn(0, 23),
@@ -208,11 +209,23 @@ object NewsRepository {
             providerKeySaved = secureProviderKeyStore.hasKey(),
             onboardingDismissed = settings.onboardingDismissed,
             widgetFeedSourceId = settings.widgetFeedSourceId
-                .takeIf { id -> id == WIDGET_ALL_FEEDS || _state.value.feedSources.any { it.id == id } }
+                .takeIf { id -> id == WIDGET_ALL_FEEDS || feedSources.any { it.id == id } }
                 ?: WIDGET_ALL_FEEDS,
             widgetLayoutMode = settings.widgetLayoutMode,
             widgetBackgroundMode = settings.widgetBackgroundMode,
             widgetStackIndex = settings.widgetStackIndex.coerceAtLeast(0),
+            widgetPresets = settings.widgetPresets
+                .filter { it.name.isNotBlank() }
+                .distinctBy { it.id }
+                .take(12)
+                .map { preset ->
+                    preset.copy(
+                        name = preset.name.trim(),
+                        feedSourceId = preset.feedSourceId
+                            .takeIf { id -> id == WIDGET_ALL_FEEDS || feedSources.any { it.id == id } }
+                            ?: WIDGET_ALL_FEEDS,
+                    )
+                },
         )
         _state.update { current ->
             persistSettings(normalized)

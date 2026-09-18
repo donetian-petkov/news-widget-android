@@ -68,6 +68,7 @@ import com.ainews.android.data.RuntimeSettings
 import com.ainews.android.data.WIDGET_ALL_FEEDS
 import com.ainews.android.data.WidgetBackgroundMode
 import com.ainews.android.data.WidgetLayoutMode
+import com.ainews.android.data.WidgetPreset
 import com.ainews.android.data.aiBudgetText
 import com.ainews.android.data.setupChecklistItems
 import com.ainews.android.network.ImageDiskCache
@@ -876,6 +877,7 @@ private fun SettingsScreen(
 ) {
     var draft by remember(settings) { mutableStateOf(settings) }
     var keyDraft by remember { mutableStateOf("") }
+    var presetNameDraft by remember { mutableStateOf("") }
 
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1062,6 +1064,62 @@ private fun SettingsScreen(
                         )
                     }
                 }
+
+                Text(
+                    text = "Saved views",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFF64748B),
+                )
+                OutlinedTextField(
+                    value = presetNameDraft,
+                    onValueChange = { presetNameDraft = it },
+                    label = { Text("View name") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedButton(
+                    onClick = {
+                        val name = presetNameDraft.trim()
+                        if (name.isNotBlank()) {
+                            val preset = WidgetPreset(
+                                id = "widget-${System.currentTimeMillis()}",
+                                name = name,
+                                feedSourceId = draft.widgetFeedSourceId,
+                                layoutMode = draft.widgetLayoutMode,
+                                backgroundMode = draft.widgetBackgroundMode,
+                            )
+                            draft = draft.copy(widgetPresets = (draft.widgetPresets + preset).takeLast(12))
+                            presetNameDraft = ""
+                        }
+                    },
+                    enabled = presetNameDraft.isNotBlank(),
+                ) {
+                    Text("Save current view")
+                }
+                if (draft.widgetPresets.isEmpty()) {
+                    Text(
+                        text = "No saved widget views yet",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF64748B),
+                    )
+                } else {
+                    draft.widgetPresets.forEach { preset ->
+                        SavedWidgetPresetRow(
+                            preset = preset,
+                            feedTitle = feedSources.firstOrNull { it.id == preset.feedSourceId }?.title ?: "All feeds",
+                            onApply = {
+                                draft = draft.copy(
+                                    widgetFeedSourceId = preset.feedSourceId,
+                                    widgetLayoutMode = preset.layoutMode,
+                                    widgetBackgroundMode = preset.backgroundMode,
+                                    widgetStackIndex = 0,
+                                )
+                            },
+                            onDelete = {
+                                draft = draft.copy(widgetPresets = draft.widgetPresets.filterNot { it.id == preset.id })
+                            },
+                        )
+                    }
+                }
             }
         }
 
@@ -1072,6 +1130,35 @@ private fun SettingsScreen(
             ) {
                 Text("Save settings")
             }
+        }
+    }
+}
+
+@Composable
+private fun SavedWidgetPresetRow(
+    preset: WidgetPreset,
+    feedTitle: String,
+    onApply: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(preset.name, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
+            Text(
+                text = "$feedTitle - ${preset.layoutMode.name} - ${preset.backgroundMode.name}",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF64748B),
+            )
+        }
+        TextButton(onClick = onApply) {
+            Text("Apply")
+        }
+        TextButton(onClick = onDelete) {
+            Text("Delete")
         }
     }
 }

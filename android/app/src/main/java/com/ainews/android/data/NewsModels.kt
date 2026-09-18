@@ -29,6 +29,14 @@ enum class WidgetBackgroundMode {
     Transparent,
 }
 
+data class WidgetPreset(
+    val id: String,
+    val name: String,
+    val feedSourceId: String = WIDGET_ALL_FEEDS,
+    val layoutMode: WidgetLayoutMode = WidgetLayoutMode.Column,
+    val backgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.Solid,
+)
+
 data class RuntimeSettings(
     val backendMode: BackendMode = BackendMode.NativeRuntime,
     val aiProvider: AiProvider = AiProvider.OpenAI,
@@ -42,6 +50,7 @@ data class RuntimeSettings(
     val widgetLayoutMode: WidgetLayoutMode = WidgetLayoutMode.Column,
     val widgetBackgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.Solid,
     val widgetStackIndex: Int = 0,
+    val widgetPresets: List<WidgetPreset> = emptyList(),
 )
 
 data class RuntimeState(
