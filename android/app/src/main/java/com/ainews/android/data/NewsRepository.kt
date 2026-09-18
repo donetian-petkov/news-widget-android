@@ -368,6 +368,24 @@ object NewsRepository {
         }
     }
 
+    fun restoreStory(storyId: String) {
+        repositoryScope.launch {
+            storyDao.restoreStory(storyId)
+        }
+        _state.update { current ->
+            current.copy(
+                stories = current.stories.map { story ->
+                    if (story.id == storyId) {
+                        story.copy(isHidden = false, hiddenAt = null)
+                    } else {
+                        story
+                    }
+                },
+                message = "Story restored",
+            )
+        }
+    }
+
     fun scanMonitorsNow() {
         val current = _state.value
         val matches = current.monitors

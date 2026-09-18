@@ -63,6 +63,7 @@ fun AiNewsApp() {
     val scope = rememberCoroutineScope()
     val selectedStory = state.selectedStory
     var showSettings by remember { mutableStateOf(false) }
+    var showHidden by remember { mutableStateOf(false) }
 
     MaterialTheme {
         Surface(
@@ -79,6 +80,19 @@ fun AiNewsApp() {
                     },
                     onSaveKey = NewsRepository::saveProviderKey,
                     onClearKey = NewsRepository::clearProviderKey,
+                )
+            } else if (showHidden) {
+                HiddenStoriesScreen(
+                    stories = state.stories.filter { it.isHidden },
+                    onBack = { showHidden = false },
+                    onRestoreStory = {
+                        NewsRepository.restoreStory(it)
+                        scope.launch { NewsWidget().updateAll(context) }
+                    },
+                    onRestoreAll = {
+                        NewsRepository.restoreHidden()
+                        scope.launch { NewsWidget().updateAll(context) }
+                    },
                 )
             } else if (selectedStory != null) {
                 StoryDetail(
@@ -121,6 +135,7 @@ fun AiNewsApp() {
                     },
                     onSelectTopic = NewsRepository::selectTopic,
                     onOpenSettings = { showSettings = true },
+                    onOpenHidden = { showHidden = true },
                     onOpenStory = NewsRepository::selectStory,
                     onHideStory = {
                         NewsRepository.hideStory(it)
@@ -144,6 +159,7 @@ private fun NewsFeed(
     onScanMonitors: () -> Unit,
     onSelectTopic: (String?) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenHidden: () -> Unit,
     onOpenStory: (String) -> Unit,
     onHideStory: (String) -> Unit,
     onShareStory: (NewsStory) -> Unit,
@@ -163,6 +179,7 @@ private fun NewsFeed(
             onScanMonitors = onScanMonitors,
             onSelectTopic = onSelectTopic,
             onOpenSettings = onOpenSettings,
+            onOpenHidden = onOpenHidden,
         )
 
         Spacer(Modifier.height(14.dp))
@@ -196,6 +213,7 @@ private fun Header(
     onScanMonitors: () -> Unit,
     onSelectTopic: (String?) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenHidden: () -> Unit,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -299,8 +317,13 @@ private fun Header(
 
         val hiddenCount = state.stories.count { it.isHidden }
         if (hiddenCount > 0) {
-            TextButton(onClick = onRestoreHidden) {
-                Text("Restore $hiddenCount hidden")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onOpenHidden) {
+                    Text("Hidden $hiddenCount")
+                }
+                TextButton(onClick = onRestoreHidden) {
+                    Text("Restore all")
+                }
             }
         }
 
@@ -328,6 +351,90 @@ private fun Header(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HiddenStoriesScreen(
+    stories: List<NewsStory>,
+    onBack: () -> Unit,
+    onRestoreStory: (String) -> Unit,
+    onRestoreAll: () -> Unit,
+) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(18.dp),
+    ) {
+        item {
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column {
+                    Text(
+                        text = "Hidden Stories",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A),
+                    )
+                    Text(
+                        text = "${stories.size} hidden",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF64748B),
+                    )
+                }
+                TextButton(onClick = onBack) {
+                    Text("Done")
+                }
+            }
+        }
+
+        if (stories.isNotEmpty()) {
+            item {
+                OutlinedButton(onClick = onRestoreAll, modifier = Modifier.fillMaxWidth()) {
+                    Text("Restore all hidden stories")
+                }
+            }
+        }
+
+        items(stories, key = { it.id }) { story ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(14.dp),
+                ) {
+                    Text(story.source, style = MaterialTheme.typography.labelMedium, color = Color(0xFF64748B))
+                    Text(story.title, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                    Text(
+                        story.summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF334155),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    OutlinedButton(onClick = { onRestoreStory(story.id) }) {
+                        Text("Restore")
+                    }
+                }
+            }
+        }
+
+        if (stories.isEmpty()) {
+            item {
+                Text(
+                    text = "No hidden stories",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF64748B),
+                )
             }
         }
     }

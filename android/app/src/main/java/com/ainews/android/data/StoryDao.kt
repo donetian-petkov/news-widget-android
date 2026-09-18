@@ -25,4 +25,7 @@ interface StoryDao {
 
     @Query("UPDATE stories SET isHidden = 0, hiddenAt = NULL")
     fun restoreHidden()
+
+    @Query("UPDATE stories SET isHidden = 0, hiddenAt = NULL WHERE id = :storyId")
+    fun restoreStory(storyId: String)
 }
