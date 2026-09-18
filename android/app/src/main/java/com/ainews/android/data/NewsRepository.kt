@@ -5,10 +5,13 @@ import androidx.room.Room
 import com.ainews.android.network.RemoteBackendClient
 import com.ainews.android.network.AiEnrichmentClient
 import com.ainews.android.network.ImageDiskCache
+import com.ainews.android.network.FeedFetchOutcome
 import com.ainews.android.network.RssFeedFetcher
+import com.ainews.android.notifications.AlertNotifier
 import com.ainews.android.worker.AutoPowerOffWorker
 import com.ainews.android.worker.MonitorScanWorker
 import com.ainews.android.worker.RefreshNewsWorker
+import com.ainews.android.worker.ScheduleWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,6 +29,7 @@ object NewsRepository {
     private var initialized = false
     private lateinit var appContext: Context
     private lateinit var storyDao: StoryDao
+    private lateinit var fetchHistoryDao: FetchHistoryDao
     private lateinit var runtimePreferences: RuntimePreferences
     private lateinit var secureProviderKeyStore: SecureProviderKeyStore
     private val rssFeedFetcher = RssFeedFetcher()
@@ -99,10 +103,11 @@ object NewsRepository {
             AiNewsDatabase::class.java,
             "ai-news.db",
         )
-            .addMigrations(AiNewsDatabase.MIGRATION_1_2)
+            .addMigrations(AiNewsDatabase.MIGRATION_1_2, AiNewsDatabase.MIGRATION_2_3)
             .build()
 
         storyDao = database.storyDao()
+        fetchHistoryDao = database.fetchHistoryDao()
         runtimePreferences = RuntimePreferences(appContext)
         secureProviderKeyStore = SecureProviderKeyStore(appContext)
 
@@ -113,33 +118,50 @@ object NewsRepository {
         }
 
         repositoryScope.launch {
-            combine(
+            val storiesWithHistory = combine(
                 storyDao.observeStories(),
+                fetchHistoryDao.observeHistory(),
+            ) { stories, history ->
+                stories.map { it.toModel() } to history.map { it.toModel() }
+            }
+
+            var syncedSchedules: List<NewsSchedule>? = null
+
+            combine(
+                storiesWithHistory,
                 runtimePreferences.runtimeState,
                 runtimePreferences.monitorState,
                 runtimePreferences.feedSourceState,
-            ) { stories, runtimeWithSettings, monitors, feedSources ->
+                runtimePreferences.extrasState,
+            ) { storiesAndHistory, runtimeWithSettings, monitors, feedSources, extras ->
                 CombinedState(
-                    stories.map { it.toModel() },
-                    runtimeWithSettings.first to runtimeWithSettings.second,
-                    monitors,
-                    feedSources,
+                    stories = storiesAndHistory.first,
+                    fetchHistory = storiesAndHistory.second,
+                    runtimeWithSettings = runtimeWithSettings.first to runtimeWithSettings.second,
+                    monitors = monitors,
+                    feedSources = feedSources,
+                    extras = extras,
                 )
             }.collect { combined ->
-                val stories = combined.stories
-                val runtimeWithSettings = combined.runtimeWithSettings
-                val monitors = combined.monitors
-                val (runtime, settings) = runtimeWithSettings
+                val (runtime, settings) = combined.runtimeWithSettings
                 _state.update { current ->
                     current.copy(
-                        stories = stories,
+                        stories = combined.stories,
+                        fetchHistory = combined.fetchHistory,
                         runtime = runtime,
                         settings = settings.copy(
                             providerKeySaved = settings.providerKeySaved || secureProviderKeyStore.hasKey(),
                         ),
-                        monitors = monitors,
+                        monitors = combined.monitors,
                         feedSources = combined.feedSources,
+                        schedules = combined.extras.schedules,
+                        digests = combined.extras.digests,
+                        usageRecords = combined.extras.usageRecords,
                     )
+                }
+                if (combined.extras.schedules != syncedSchedules) {
+                    syncedSchedules = combined.extras.schedules
+                    ScheduleWorker.syncAll(appContext, combined.extras.schedules)
                 }
             }
         }
@@ -147,9 +169,11 @@ object NewsRepository {
 
     private data class CombinedState(
         val stories: List<NewsStory>,
+        val fetchHistory: List<FeedFetchRecord>,
         val runtimeWithSettings: Pair<RuntimeState, RuntimeSettings>,
         val monitors: List<NewsMonitor>,
         val feedSources: List<FeedSource>,
+        val extras: PreferenceExtras,
     )
 
     fun selectStory(storyId: String?, section: StoryDetailSection = StoryDetailSection.Story) {
@@ -206,7 +230,7 @@ object NewsRepository {
         val feedSources = _state.value.feedSources
         val validFeedIds = feedSources.map { it.id }.toSet()
         val normalizedWidgetFeedIds = settings.effectiveWidgetFeedSourceIds()
-            .filter { it in validFeedIds }
+            .filter { it in validFeedIds || it == WIDGET_FILTERED_FEED }
         val normalized = settings.copy(
             fetchCadenceMinutes = settings.fetchCadenceMinutes.coerceAtLeast(15),
             monitorScanHour = settings.monitorScanHour.coerceIn(0, 23),
@@ -221,6 +245,7 @@ object NewsRepository {
             widgetDensityMode = settings.widgetDensityMode,
             widgetTypographyMode = settings.widgetTypographyMode,
             widgetStackIndex = settings.widgetStackIndex.coerceAtLeast(0),
+            keywords = KeywordMatcher.normalize(settings.keywords),
             widgetPresets = settings.widgetPresets
                 .filter { it.name.isNotBlank() }
                 .distinctBy { it.id }
@@ -229,11 +254,11 @@ object NewsRepository {
                     preset.copy(
                         name = preset.name.trim(),
                         feedSourceId = preset.effectiveFeedSourceIds()
-                            .filter { it in validFeedIds }
+                            .filter { it in validFeedIds || it == WIDGET_FILTERED_FEED }
                             .singleOrNull()
                             ?: WIDGET_ALL_FEEDS,
                         feedSourceIds = preset.effectiveFeedSourceIds()
-                            .filter { it in validFeedIds },
+                            .filter { it in validFeedIds || it == WIDGET_FILTERED_FEED },
                     )
                 },
         )
@@ -356,6 +381,61 @@ object NewsRepository {
         }
     }
 
+    fun toggleFeedFetch(feedSourceId: String) {
+        _state.update { current ->
+            val feedSources = current.feedSources.map { source ->
+                if (source.id == feedSourceId) source.copy(fetchEnabled = !source.fetchEnabled) else source
+            }
+            persistFeedSources(feedSources)
+            val changed = feedSources.firstOrNull { it.id == feedSourceId }
+            current.copy(
+                feedSources = feedSources,
+                message = changed?.let {
+                    if (it.fetchEnabled) "${it.title} fetching on" else "${it.title} fetching off"
+                },
+            )
+        }
+    }
+
+    fun toggleFeedAi(feedSourceId: String) {
+        _state.update { current ->
+            val feedSources = current.feedSources.map { source ->
+                if (source.id == feedSourceId) source.copy(aiEnabled = !source.aiEnabled) else source
+            }
+            persistFeedSources(feedSources)
+            val changed = feedSources.firstOrNull { it.id == feedSourceId }
+            current.copy(
+                feedSources = feedSources,
+                message = changed?.let {
+                    if (it.aiEnabled) "${it.title} AI on" else "${it.title} AI paused"
+                },
+            )
+        }
+    }
+
+    fun importOpml(opml: String): Int {
+        val imported = OpmlCodec.parse(opml)
+        if (imported.isEmpty()) {
+            _state.update { it.copy(message = "No feeds found in that OPML file") }
+            return 0
+        }
+        var addedCount = 0
+        _state.update { current ->
+            val existingUrls = current.feedSources.map { it.url.trim().lowercase() }.toSet()
+            val additions = imported.filterNot { it.url.trim().lowercase() in existingUrls }
+            addedCount = additions.size
+            if (additions.isEmpty()) {
+                return@update current.copy(message = "Those feeds are already in the list")
+            }
+            val feedSources = current.feedSources + additions
+            persistFeedSources(feedSources)
+            current.copy(feedSources = feedSources, message = "Imported ${additions.size} feeds")
+        }
+        return addedCount
+    }
+
+    fun exportOpml(): String = OpmlCodec.write(_state.value.feedSources)
+
     fun resetFeedSources() {
         persistFeedSources(defaultFeedSources)
         _state.update {
@@ -377,6 +457,7 @@ object NewsRepository {
 
         val candidates = current.prioritizedStories
             .filterNot { it.aiFieldsAvailable }
+            .filter { aiEnabledForStory(current.feedSources, it) }
             .take(limit)
 
         if (candidates.isEmpty()) {
@@ -429,6 +510,12 @@ object NewsRepository {
                     translation = enrichment.translation,
                     research = enrichment.research,
                     topicLabels = enrichment.topicLabels.joinToString("|"),
+                )
+                recordUsage(
+                    action = "Enrichment",
+                    provider = if (paidEnrichment) "openai" else "local",
+                    storyTitle = story.title,
+                    costCents = if (paidEnrichment) OPENAI_ENRICHMENT_ESTIMATE_CENTS else 0,
                 )
                 enrichedCount += 1
             }
@@ -521,13 +608,25 @@ object NewsRepository {
         }
 
         val settings = _state.value.settings
-        val fetchedStories = withContext(Dispatchers.IO) {
+        val fetchOutcome = withContext(Dispatchers.IO) {
             runCatching {
                 when (settings.backendMode) {
-                    BackendMode.NativeRuntime -> rssFeedFetcher.fetchTopStories(sources = _state.value.feedSources)
-                    BackendMode.RemoteBackend -> remoteBackendClient.fetchStories(settings.remoteBackendUrl)
+                    BackendMode.NativeRuntime ->
+                        rssFeedFetcher.fetchTopStoriesWithHistory(sources = _state.value.feedSources)
+
+                    BackendMode.RemoteBackend -> FeedFetchOutcome(
+                        stories = remoteBackendClient.fetchStories(settings.remoteBackendUrl),
+                        records = emptyList(),
+                    )
                 }
-            }.getOrDefault(emptyList())
+            }.getOrDefault(FeedFetchOutcome(emptyList(), emptyList()))
+        }
+        val fetchedStories = fetchOutcome.stories
+        if (fetchOutcome.records.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                fetchHistoryDao.insertAll(fetchOutcome.records.map { it.toEntity() })
+                fetchHistoryDao.prune(System.currentTimeMillis() - HISTORY_RETENTION_MILLIS)
+            }
         }
         delay(200)
 
@@ -611,6 +710,258 @@ object NewsRepository {
             )
         }
     }
+
+    fun setFeedViewMode(mode: FeedViewMode) {
+        _state.update { current ->
+            current.copy(
+                feedViewMode = mode,
+                message = when (mode) {
+                    FeedViewMode.All -> "Showing all stories"
+                    FeedViewMode.Filtered -> "Showing keyword matches"
+                    FeedViewMode.Saved -> "Showing saved stories"
+                },
+            )
+        }
+    }
+
+    fun toggleSaved(storyId: String) {
+        _state.update { current ->
+            val story = current.stories.firstOrNull { it.id == storyId } ?: return@update current
+            val nextSaved = !story.isSaved
+            val savedAt = if (nextSaved) System.currentTimeMillis() else null
+            repositoryScope.launch {
+                storyDao.setSaved(storyId, nextSaved, savedAt)
+            }
+            current.copy(
+                stories = current.stories.map {
+                    if (it.id == storyId) it.copy(isSaved = nextSaved, savedAt = savedAt) else it
+                },
+                message = if (nextSaved) "Saved to library" else "Removed from library",
+            )
+        }
+    }
+
+    fun addKeyword(keyword: String) {
+        val clean = keyword.trim()
+        if (clean.isBlank()) return
+        val settings = _state.value.settings
+        if (settings.keywords.any { it.equals(clean, ignoreCase = true) }) return
+        updateSettings(settings.copy(keywords = settings.keywords + clean))
+    }
+
+    fun removeKeyword(keyword: String) {
+        val settings = _state.value.settings
+        updateSettings(settings.copy(keywords = settings.keywords.filterNot { it.equals(keyword, ignoreCase = true) }))
+    }
+
+    /** Runs a single AI action for one story, so the user can ask for just what they need. */
+    suspend fun runStoryAction(storyId: String, action: StoryAiAction) {
+        val current = _state.value
+        val story = current.stories.firstOrNull { it.id == storyId } ?: return
+        if (!current.runtime.runtimeEnabled || !current.runtime.aiEnabled) {
+            _state.update { it.copy(message = "Power on runtime and AI before running ${action.label.lowercase()}") }
+            return
+        }
+        if (!aiEnabledForStory(current.feedSources, story)) {
+            _state.update { it.copy(message = "AI is paused for ${story.source}") }
+            return
+        }
+
+        val settings = current.settings
+        val apiKey = secureProviderKeyStore.load()
+        val paid = settings.aiProvider == AiProvider.OpenAI && !apiKey.isNullOrBlank()
+        val today = LocalDate.now().toString()
+        val runtimeWithBudgetDay = current.runtime.resetAiBudgetIfNeeded(today)
+        if (paid && runtimeWithBudgetDay.aiBudgetSpentCents + OPENAI_ACTION_ESTIMATE_CENTS > settings.aiDailyBudgetCents) {
+            val runtime = runtimeWithBudgetDay.copy(aiQueueStatus = "Budget paused")
+            persistRuntime(runtime)
+            _state.update { it.copy(runtime = runtime, message = "AI budget reached - action skipped") }
+            return
+        }
+
+        _state.update { it.copy(message = "Running ${action.label.lowercase()} for this story") }
+
+        val result = withContext(Dispatchers.IO) {
+            runCatching {
+                if (paid) {
+                    aiEnrichmentClient.runActionWithOpenAi(apiKey!!, story, action)
+                } else {
+                    aiEnrichmentClient.runActionLocally(story, action)
+                }
+            }.getOrElse { aiEnrichmentClient.runActionLocally(story, action) }
+                .ifBlank { aiEnrichmentClient.runActionLocally(story, action) }
+        }
+
+        withContext(Dispatchers.IO) {
+            when (action) {
+                StoryAiAction.Summary -> storyDao.updateSummary(storyId, result)
+                StoryAiAction.Research -> storyDao.updateResearch(storyId, result)
+                StoryAiAction.Translation -> storyDao.updateTranslation(storyId, result)
+                StoryAiAction.NeutralTitle -> storyDao.updateNeutralTitle(storyId, result)
+            }
+        }
+
+        recordUsage(
+            action = action.label,
+            provider = if (paid) "openai" else "local",
+            storyTitle = story.title,
+            costCents = if (paid) OPENAI_ACTION_ESTIMATE_CENTS else 0,
+        )
+
+        _state.update { state ->
+            val runtime = runtimeWithBudgetDay.copy(
+                lastAiJobAt = System.currentTimeMillis(),
+                aiQueueStatus = "Idle",
+                aiBudgetSpentCents = runtimeWithBudgetDay.aiBudgetSpentCents +
+                    if (paid) OPENAI_ACTION_ESTIMATE_CENTS else 0,
+                aiBudgetDay = today,
+            )
+            persistRuntime(runtime)
+            state.copy(
+                runtime = runtime,
+                stories = state.stories.map {
+                    if (it.id != storyId) {
+                        it
+                    } else {
+                        when (action) {
+                            StoryAiAction.Summary -> it.copy(summary = result, aiFieldsAvailable = true)
+                            StoryAiAction.Research -> it.copy(research = result, aiFieldsAvailable = true)
+                            StoryAiAction.Translation -> it.copy(translation = result, aiFieldsAvailable = true)
+                            StoryAiAction.NeutralTitle -> it.copy(neutralTitle = result, aiFieldsAvailable = true)
+                        }
+                    }
+                },
+                message = "${action.label} ready",
+            )
+        }
+    }
+
+    /** Fills in AI fields for every story that is still missing them. */
+    suspend fun regenerateMissingAi(limit: Int = 20) {
+        enrichVisibleStories(limit)
+    }
+
+    fun addSchedule(kind: ScheduleKind, hour: Int) {
+        _state.update { current ->
+            val schedule = ScheduleWorker.defaultSchedule(kind, hour)
+            val schedules = current.schedules + schedule
+            persistSchedules(schedules)
+            current.copy(schedules = schedules, message = "${kind.label} scheduled for ${hour}:00")
+        }
+    }
+
+    fun toggleSchedule(scheduleId: String) {
+        _state.update { current ->
+            val schedules = current.schedules.map {
+                if (it.id == scheduleId) it.copy(enabled = !it.enabled) else it
+            }
+            persistSchedules(schedules)
+            current.copy(schedules = schedules, message = "Schedule updated")
+        }
+    }
+
+    fun deleteSchedule(scheduleId: String) {
+        ScheduleWorker.cancel(appContext, scheduleId)
+        _state.update { current ->
+            val schedules = current.schedules.filterNot { it.id == scheduleId }
+            persistSchedules(schedules)
+            current.copy(schedules = schedules, message = "Schedule removed")
+        }
+    }
+
+    suspend fun runScheduleNow(scheduleId: String) {
+        val schedule = _state.value.schedules.firstOrNull { it.id == scheduleId } ?: return
+        when (schedule.kind) {
+            ScheduleKind.Refresh -> refreshNow()
+            ScheduleKind.MonitorScan -> {
+                scanMonitorsNow()
+                AlertNotifier(appContext).notifyMatches(
+                    matches = _state.value.alertMatches,
+                    stories = _state.value.stories,
+                )
+            }
+
+            ScheduleKind.Digest -> buildDigestNow()
+        }
+        _state.update { current ->
+            val schedules = current.schedules.map {
+                if (it.id == scheduleId) it.copy(lastRunAt = System.currentTimeMillis()) else it
+            }
+            persistSchedules(schedules)
+            current.copy(schedules = schedules)
+        }
+    }
+
+    /** Builds a short digest of the current top stories and posts it as a notification. */
+    fun buildDigestNow(): DigestEntry? {
+        val current = _state.value
+        val stories = current.prioritizedStories.take(8)
+        if (stories.isEmpty()) {
+            _state.update { it.copy(message = "No stories to put in a digest") }
+            return null
+        }
+        val createdAt = System.currentTimeMillis()
+        val digest = DigestEntry(
+            id = "digest-$createdAt",
+            createdAt = createdAt,
+            title = "Digest - ${stories.size} stories",
+            body = stories.joinToString("\n") { "- ${it.displayTitleForDigest()} (${it.source})" },
+            storyIds = stories.map { it.id },
+        )
+        _state.update { state ->
+            val digests = (listOf(digest) + state.digests).take(30)
+            persistDigests(digests)
+            state.copy(digests = digests, message = "Digest ready")
+        }
+        AlertNotifier(appContext).notifyDigest(digest.title, digest.body)
+        return digest
+    }
+
+    fun deleteDigest(digestId: String) {
+        _state.update { current ->
+            val digests = current.digests.filterNot { it.id == digestId }
+            persistDigests(digests)
+            current.copy(digests = digests, message = "Digest removed")
+        }
+    }
+
+    fun resetUsage() {
+        _state.update { current ->
+            persistUsage(emptyList())
+            val runtime = current.runtime.copy(aiBudgetSpentCents = 0)
+            persistRuntime(runtime)
+            current.copy(usageRecords = emptyList(), runtime = runtime, message = "AI usage reset")
+        }
+    }
+
+    fun clearFetchHistory() {
+        repositoryScope.launch {
+            fetchHistoryDao.clear()
+        }
+        _state.update { it.copy(fetchHistory = emptyList(), message = "Fetch history cleared") }
+    }
+
+    private fun recordUsage(action: String, provider: String, storyTitle: String, costCents: Int) {
+        _state.update { current ->
+            val record = AiUsageRecord(
+                id = "usage-${System.currentTimeMillis()}-${action.hashCode()}",
+                createdAt = System.currentTimeMillis(),
+                action = action,
+                provider = provider,
+                storyTitle = storyTitle,
+                costCents = costCents,
+            )
+            val records = (listOf(record) + current.usageRecords).take(100)
+            persistUsage(records)
+            current.copy(usageRecords = records)
+        }
+    }
+
+    private fun aiEnabledForStory(feedSources: List<FeedSource>, story: NewsStory): Boolean =
+        feedSources.firstOrNull { it.title == story.source }?.aiEnabled ?: true
+
+    private fun NewsStory.displayTitleForDigest(): String =
+        neutralTitle?.takeIf { it.isNotBlank() } ?: title
 
     fun restoreHidden() {
         repositoryScope.launch {
@@ -712,6 +1063,24 @@ object NewsRepository {
         }
     }
 
+    private fun persistSchedules(schedules: List<NewsSchedule>) {
+        repositoryScope.launch {
+            runtimePreferences.saveSchedules(schedules)
+        }
+    }
+
+    private fun persistDigests(digests: List<DigestEntry>) {
+        repositoryScope.launch {
+            runtimePreferences.saveDigests(digests)
+        }
+    }
+
+    private fun persistUsage(records: List<AiUsageRecord>) {
+        repositoryScope.launch {
+            runtimePreferences.saveUsage(records)
+        }
+    }
+
     private fun persistFeedSources(feedSources: List<FeedSource>) {
         repositoryScope.launch {
             runtimePreferences.saveFeedSources(feedSources)
@@ -747,4 +1116,6 @@ object NewsRepository {
         }
 
     private const val OPENAI_ENRICHMENT_ESTIMATE_CENTS = 2
+    private const val OPENAI_ACTION_ESTIMATE_CENTS = 1
+    private const val HISTORY_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000
 }

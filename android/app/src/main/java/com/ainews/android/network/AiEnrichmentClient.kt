@@ -1,6 +1,7 @@
 package com.ainews.android.network
 
 import com.ainews.android.data.NewsStory
+import com.ainews.android.data.StoryAiAction
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -43,6 +44,54 @@ class AiEnrichmentClient {
         val outputText = JSONObject(responseText).optString("output_text")
         return outputText.toEnrichment(story)
     }
+
+    /** Runs one AI action for one story and returns just that block of text. */
+    fun runActionWithOpenAi(apiKey: String, story: NewsStory, action: StoryAiAction): String {
+        val instruction = when (action) {
+            StoryAiAction.Summary -> "Write a short factual summary in at most three sentences."
+            StoryAiAction.Research ->
+                "Write short research notes: the context a reader needs and what to watch next. Use at most four sentences."
+            StoryAiAction.Translation ->
+                "Translate the title and summary into English if they are not English, otherwise into Bulgarian."
+            StoryAiAction.NeutralTitle ->
+                "Rewrite the headline so it is neutral and free of loaded wording. Answer with the headline only."
+        }
+
+        val input = """
+            $instruction
+            Use only the title and summary below. Answer with plain text and no markdown.
+
+            Title: ${story.title}
+            Summary: ${story.summary}
+            Source: ${story.source}
+        """.trimIndent()
+
+        val body = JSONObject()
+            .put("model", "gpt-5")
+            .put("input", input)
+            .toString()
+
+        val connection = (URL("https://api.openai.com/v1/responses").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 12_000
+            readTimeout = 30_000
+            requestMethod = "POST"
+            doOutput = true
+            setRequestProperty("Authorization", "Bearer $apiKey")
+            setRequestProperty("Content-Type", "application/json")
+        }
+
+        connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+        return JSONObject(responseText).optString("output_text").trim()
+    }
+
+    fun runActionLocally(story: NewsStory, action: StoryAiAction): String =
+        when (action) {
+            StoryAiAction.Summary -> story.summary.take(400)
+            StoryAiAction.Research -> "Local notes: ${story.summary.take(220)} (source: ${story.source})"
+            StoryAiAction.Translation -> "Local mode has no translation provider configured."
+            StoryAiAction.NeutralTitle -> story.title.removePrefix("Breaking:").trim()
+        }
 
     fun enrichLocally(story: NewsStory): StoryEnrichment =
         StoryEnrichment(

@@ -68,6 +68,9 @@ class RuntimePreferences(
                 widgetPresets = prefs[Keys.widgetPresetsJson]
                     ?.let(RuntimePreferencesCodec::widgetPresetsFromJson)
                     .orEmpty(),
+                keywords = prefs[Keys.keywordsJson]
+                    ?.let(RuntimePreferencesCodec::stringListFromJson)
+                    .orEmpty(),
             )
             runtime to settings
         }
@@ -87,6 +90,21 @@ class RuntimePreferences(
                 ?.takeIf { it.isNotEmpty() }
                 ?: defaultFeedSources
             mergeWithDefaultFeedSources(savedFeeds)
+        }
+
+    val extrasState: Flow<PreferenceExtras> =
+        context.runtimeDataStore.data.map { prefs ->
+            PreferenceExtras(
+                schedules = prefs[Keys.schedulesJson]
+                    ?.let(RuntimePreferencesCodec::schedulesFromJson)
+                    .orEmpty(),
+                digests = prefs[Keys.digestsJson]
+                    ?.let(RuntimePreferencesCodec::digestsFromJson)
+                    .orEmpty(),
+                usageRecords = prefs[Keys.usageJson]
+                    ?.let(RuntimePreferencesCodec::usageFromJson)
+                    .orEmpty(),
+            )
         }
 
     suspend fun save(runtime: RuntimeState) {
@@ -124,6 +142,25 @@ class RuntimePreferences(
             prefs[Keys.widgetTypographyMode] = settings.widgetTypographyMode.name
             prefs[Keys.widgetStackIndex] = settings.widgetStackIndex.toLong().coerceAtLeast(0)
             prefs[Keys.widgetPresetsJson] = RuntimePreferencesCodec.widgetPresetsToJson(settings.widgetPresets)
+            prefs[Keys.keywordsJson] = RuntimePreferencesCodec.stringListToJson(settings.keywords)
+        }
+    }
+
+    suspend fun saveSchedules(schedules: List<NewsSchedule>) {
+        context.runtimeDataStore.edit { prefs ->
+            prefs[Keys.schedulesJson] = RuntimePreferencesCodec.schedulesToJson(schedules)
+        }
+    }
+
+    suspend fun saveDigests(digests: List<DigestEntry>) {
+        context.runtimeDataStore.edit { prefs ->
+            prefs[Keys.digestsJson] = RuntimePreferencesCodec.digestsToJson(digests)
+        }
+    }
+
+    suspend fun saveUsage(records: List<AiUsageRecord>) {
+        context.runtimeDataStore.edit { prefs ->
+            prefs[Keys.usageJson] = RuntimePreferencesCodec.usageToJson(records)
         }
     }
 
@@ -170,5 +207,15 @@ class RuntimePreferences(
         val widgetPresetsJson = stringPreferencesKey("widget_presets_json")
         val monitorsJson = stringPreferencesKey("monitors_json")
         val feedSourcesJson = stringPreferencesKey("feed_sources_json")
+        val keywordsJson = stringPreferencesKey("keywords_json")
+        val schedulesJson = stringPreferencesKey("schedules_json")
+        val digestsJson = stringPreferencesKey("digests_json")
+        val usageJson = stringPreferencesKey("usage_json")
     }
 }
+
+data class PreferenceExtras(
+    val schedules: List<NewsSchedule> = emptyList(),
+    val digests: List<DigestEntry> = emptyList(),
+    val usageRecords: List<AiUsageRecord> = emptyList(),
+)

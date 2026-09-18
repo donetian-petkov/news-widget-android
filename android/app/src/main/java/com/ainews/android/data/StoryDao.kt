@@ -32,6 +32,21 @@ interface StoryDao {
     @Query("UPDATE stories SET isPinned = :isPinned, pinnedAt = :pinnedAt WHERE id = :storyId")
     fun setPinned(storyId: String, isPinned: Boolean, pinnedAt: Long?)
 
+    @Query("UPDATE stories SET isSaved = :isSaved, savedAt = :savedAt WHERE id = :storyId")
+    fun setSaved(storyId: String, isSaved: Boolean, savedAt: Long?)
+
+    @Query("UPDATE stories SET summary = :summary, aiFieldsAvailable = 1 WHERE id = :storyId")
+    fun updateSummary(storyId: String, summary: String)
+
+    @Query("UPDATE stories SET research = :research, aiFieldsAvailable = 1 WHERE id = :storyId")
+    fun updateResearch(storyId: String, research: String)
+
+    @Query("UPDATE stories SET translation = :translation, aiFieldsAvailable = 1 WHERE id = :storyId")
+    fun updateTranslation(storyId: String, translation: String)
+
+    @Query("UPDATE stories SET neutralTitle = :neutralTitle, aiFieldsAvailable = 1 WHERE id = :storyId")
+    fun updateNeutralTitle(storyId: String, neutralTitle: String)
+
     @Query(
         """
         UPDATE stories

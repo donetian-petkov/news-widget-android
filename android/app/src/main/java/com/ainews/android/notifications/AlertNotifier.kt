@@ -68,6 +68,32 @@ class AlertNotifier(
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
     }
 
+    fun notifyDigest(title: String, body: String) {
+        if (!canNotify()) return
+        ensureChannel()
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            DIGEST_NOTIFICATION_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(body.lineSequence().firstOrNull().orEmpty())
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(context).notify(DIGEST_NOTIFICATION_ID, notification)
+    }
+
     private fun canNotify(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(
@@ -78,5 +104,6 @@ class AlertNotifier(
     companion object {
         private const val CHANNEL_ID = "ai-news-alerts"
         private const val NOTIFICATION_ID = 20260918
+        private const val DIGEST_NOTIFICATION_ID = 20260919
     }
 }

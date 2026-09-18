@@ -1,5 +1,6 @@
 package com.ainews.android.network
 
+import com.ainews.android.data.FeedFetchRecord
 import com.ainews.android.data.FeedSource
 import com.ainews.android.data.NewsStory
 import com.ainews.android.data.defaultFeedSources
@@ -12,14 +13,55 @@ import java.util.Locale
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 
+data class FeedFetchOutcome(
+    val stories: List<NewsStory>,
+    val records: List<FeedFetchRecord>,
+)
+
 class RssFeedFetcher {
     fun fetchTopStories(
         sources: List<FeedSource> = defaultFeedSources,
         limitPerFeed: Int = 8,
-    ): List<NewsStory> =
-        sources.flatMap { source ->
-            runCatching { fetchSource(source, limitPerFeed) }.getOrDefault(emptyList())
-        }.sortedByDescending { it.publishedAt }
+    ): List<NewsStory> = fetchTopStoriesWithHistory(sources, limitPerFeed).stories
+
+    /**
+     * Fetches every enabled feed and also reports how each one went, so the app can show
+     * a fetch history and flag sources that keep failing.
+     */
+    fun fetchTopStoriesWithHistory(
+        sources: List<FeedSource> = defaultFeedSources,
+        limitPerFeed: Int = 8,
+    ): FeedFetchOutcome {
+        val stories = mutableListOf<NewsStory>()
+        val records = mutableListOf<FeedFetchRecord>()
+        sources.filter { it.fetchEnabled }.forEach { source ->
+            val startedAt = System.currentTimeMillis()
+            val result = runCatching { fetchSource(source, limitPerFeed) }
+            val finishedAt = System.currentTimeMillis()
+            val fetched = result.getOrDefault(emptyList())
+            stories.addAll(fetched)
+            records.add(
+                FeedFetchRecord(
+                    id = "fetch-${source.id}-$finishedAt",
+                    feedId = source.id,
+                    feedTitle = source.title,
+                    startedAt = startedAt,
+                    finishedAt = finishedAt,
+                    success = result.isSuccess && fetched.isNotEmpty(),
+                    storyCount = fetched.size,
+                    message = when {
+                        result.isFailure -> result.exceptionOrNull()?.message ?: "Fetch failed"
+                        fetched.isEmpty() -> "No stories returned"
+                        else -> "OK"
+                    },
+                ),
+            )
+        }
+        return FeedFetchOutcome(
+            stories = stories.sortedByDescending { it.publishedAt },
+            records = records,
+        )
+    }
 
     private fun fetchSource(source: FeedSource, limit: Int): List<NewsStory> {
         val connection = (URL(source.url).openConnection() as HttpURLConnection).apply {

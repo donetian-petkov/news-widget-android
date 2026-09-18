@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import com.ainews.android.MainActivity
 import com.ainews.android.R
 import com.ainews.android.data.FetchStatus
+import com.ainews.android.data.KeywordMatcher
+import com.ainews.android.data.WIDGET_FILTERED_FEED
 import com.ainews.android.data.NewsStory
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.StoryDetailSection
@@ -98,15 +100,21 @@ class NewsWidget : GlanceAppWidget() {
                 widgetStackIndex = instancePreferences.stackIndex(appWidgetId),
             )
             val selectedFeedIds = settings.effectiveWidgetFeedSourceIds().toSet()
+            val showFilteredFeed = WIDGET_FILTERED_FEED in selectedFeedIds
             val selectedFeeds = state.feedSources.filter { it.id in selectedFeedIds }
-            val widgetFeedTitle = when (selectedFeeds.size) {
-                0 -> "All Feeds"
-                1 -> selectedFeeds.single().title
+            val widgetFeedTitle = when {
+                showFilteredFeed -> "Filtered Feed"
+                selectedFeeds.isEmpty() -> "All Feeds"
+                selectedFeeds.size == 1 -> selectedFeeds.single().title
                 else -> "${selectedFeeds.size} Feeds"
             }
             val selectedFeedTitles = selectedFeeds.map { it.title }.toSet()
-            val allWidgetStories = state.prioritizedStories.filter { story ->
-                selectedFeedTitles.isEmpty() || story.source in selectedFeedTitles
+            val allWidgetStories = if (showFilteredFeed) {
+                state.prioritizedStories.filter { KeywordMatcher.matches(settings.keywords, it) }
+            } else {
+                state.prioritizedStories.filter { story ->
+                    selectedFeedTitles.isEmpty() || story.source in selectedFeedTitles
+                }
             }
             val size = LocalSize.current
             val metrics = widgetMetrics(settings.widgetDensityMode)

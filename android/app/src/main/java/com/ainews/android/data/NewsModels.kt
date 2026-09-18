@@ -51,6 +51,97 @@ enum class StoryDetailSection {
     Translation,
 }
 
+enum class StoryAiAction {
+    Summary,
+    Research,
+    Translation,
+    NeutralTitle,
+    ;
+
+    val label: String
+        get() = when (this) {
+            Summary -> "Summary"
+            Research -> "Research"
+            Translation -> "Translation"
+            NeutralTitle -> "Neutral title"
+        }
+}
+
+enum class ScheduleKind {
+    Refresh,
+    MonitorScan,
+    Digest,
+    ;
+
+    val label: String
+        get() = when (this) {
+            Refresh -> "Refresh feeds"
+            MonitorScan -> "Scan monitors"
+            Digest -> "Build digest"
+        }
+}
+
+enum class FeedViewMode {
+    All,
+    Filtered,
+    Saved,
+}
+
+data class NewsSchedule(
+    val id: String,
+    val kind: ScheduleKind,
+    val hour: Int,
+    val enabled: Boolean = true,
+    val lastRunAt: Long? = null,
+)
+
+data class DigestEntry(
+    val id: String,
+    val createdAt: Long,
+    val title: String,
+    val body: String,
+    val storyIds: List<String> = emptyList(),
+)
+
+data class AiUsageRecord(
+    val id: String,
+    val createdAt: Long,
+    val action: String,
+    val provider: String,
+    val storyTitle: String,
+    val costCents: Int,
+)
+
+data class FeedFetchRecord(
+    val id: String,
+    val feedId: String,
+    val feedTitle: String,
+    val startedAt: Long,
+    val finishedAt: Long,
+    val success: Boolean,
+    val storyCount: Int,
+    val message: String,
+)
+
+data class FeedHealth(
+    val feedSource: FeedSource,
+    val lastAttemptAt: Long? = null,
+    val lastSuccessAt: Long? = null,
+    val lastStoryCount: Int = 0,
+    val consecutiveFailures: Int = 0,
+    val lastMessage: String = "",
+) {
+    val healthy: Boolean
+        get() = consecutiveFailures == 0 && lastSuccessAt != null
+
+    val statusText: String
+        get() = when {
+            lastAttemptAt == null -> "Never fetched"
+            consecutiveFailures > 0 -> "Failing ($consecutiveFailures in a row)"
+            else -> "$lastStoryCount stories last fetch"
+        }
+}
+
 data class WidgetPreset(
     val id: String,
     val name: String,
@@ -81,6 +172,7 @@ data class RuntimeSettings(
     val widgetTypographyMode: WidgetTypographyMode = WidgetTypographyMode.Standard,
     val widgetStackIndex: Int = 0,
     val widgetPresets: List<WidgetPreset> = emptyList(),
+    val keywords: List<String> = emptyList(),
 )
 
 data class RuntimeState(
@@ -130,6 +222,8 @@ data class NewsStory(
     val hiddenAt: Long? = null,
     val isPinned: Boolean = false,
     val pinnedAt: Long? = null,
+    val isSaved: Boolean = false,
+    val savedAt: Long? = null,
     val neutralTitle: String? = null,
     val translation: String? = null,
     val research: String? = null,
@@ -184,12 +278,50 @@ data class NewsUiState(
     val alertMatches: List<AlertMatch> = emptyList(),
     val settings: RuntimeSettings = RuntimeSettings(),
     val feedSources: List<FeedSource> = defaultFeedSources,
+    val feedViewMode: FeedViewMode = FeedViewMode.All,
+    val fetchHistory: List<FeedFetchRecord> = emptyList(),
+    val digests: List<DigestEntry> = emptyList(),
+    val usageRecords: List<AiUsageRecord> = emptyList(),
+    val schedules: List<NewsSchedule> = emptyList(),
     val message: String? = null,
 ) {
     val visibleStories: List<NewsStory>
         get() = stories
             .filterNot { it.isHidden }
             .filter { story -> selectedTopic == null || selectedTopic in story.topicLabels }
+            .filter { story ->
+                when (feedViewMode) {
+                    FeedViewMode.All -> true
+                    FeedViewMode.Filtered -> KeywordMatcher.matches(settings.keywords, story)
+                    FeedViewMode.Saved -> story.isSaved
+                }
+            }
+
+    val savedStories: List<NewsStory>
+        get() = stories.filter { it.isSaved }.sortedByDescending { it.savedAt ?: it.publishedAt }
+
+    val keywordMatches: List<NewsStory>
+        get() = stories
+            .filterNot { it.isHidden }
+            .filter { KeywordMatcher.matches(settings.keywords, it) }
+            .sortedByDescending { it.publishedAt }
+
+    val pendingAiCount: Int
+        get() = stories.count { !it.isHidden && !it.aiFieldsAvailable }
+
+    val feedHealth: List<FeedHealth>
+        get() = feedSources.map { source ->
+            val records = fetchHistory.filter { it.feedId == source.id }.sortedByDescending { it.finishedAt }
+            val latest = records.firstOrNull()
+            FeedHealth(
+                feedSource = source,
+                lastAttemptAt = latest?.finishedAt,
+                lastSuccessAt = records.firstOrNull { it.success }?.finishedAt,
+                lastStoryCount = latest?.storyCount ?: 0,
+                consecutiveFailures = records.takeWhile { !it.success }.size,
+                lastMessage = latest?.message.orEmpty(),
+            )
+        }
 
     val availableTopics: List<String>
         get() = (
@@ -213,8 +345,12 @@ data class NewsUiState(
     val selectedStory: NewsStory?
         get() = stories.firstOrNull { it.id == selectedStoryId }
 
+    val widgetShowsFilteredFeed: Boolean
+        get() = WIDGET_FILTERED_FEED in settings.effectiveWidgetFeedSourceIds()
+
     val widgetFeedTitle: String
         get() {
+            if (widgetShowsFilteredFeed) return "Filtered Feed"
             val selectedFeeds = widgetSelectedFeedSources
             return when (selectedFeeds.size) {
                 0 -> "All Feeds"
@@ -231,6 +367,9 @@ data class NewsUiState(
 
     val widgetStories: List<NewsStory>
         get() {
+            if (widgetShowsFilteredFeed) {
+                return prioritizedStories.filter { KeywordMatcher.matches(settings.keywords, it) }
+            }
             val selectedFeedTitles = widgetSelectedFeedSources.map { it.title }.toSet()
             return prioritizedStories.filter { story ->
                 selectedFeedTitles.isEmpty() || story.source in selectedFeedTitles
@@ -246,6 +385,9 @@ data class NewsUiState(
 }
 
 const val WIDGET_ALL_FEEDS = "all"
+
+/** Pseudo feed id: the widget shows keyword matches instead of one RSS source. */
+const val WIDGET_FILTERED_FEED = "filtered"
 
 fun RuntimeSettings.effectiveWidgetFeedSourceIds(): List<String> =
     widgetFeedSourceIds.ifEmpty {

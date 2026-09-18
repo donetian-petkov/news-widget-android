@@ -66,7 +66,9 @@ object RuntimePreferencesCodec {
                 JSONObject()
                     .put("id", source.id)
                     .put("title", source.title)
-                    .put("url", source.url),
+                    .put("url", source.url)
+                    .put("fetchEnabled", source.fetchEnabled)
+                    .put("aiEnabled", source.aiEnabled),
             )
         }
         return array.toString()
@@ -86,6 +88,8 @@ object RuntimePreferencesCodec {
                             id = item.optString("id").ifBlank { "feed-${url.hashCode()}" },
                             title = title,
                             url = url,
+                            fetchEnabled = item.optBoolean("fetchEnabled", true),
+                            aiEnabled = item.optBoolean("aiEnabled", true),
                         ),
                     )
                 }
@@ -149,6 +153,123 @@ object RuntimePreferencesCodec {
                             typographyMode = item.optString("typographyMode")
                                 .let { runCatching { WidgetTypographyMode.valueOf(it) }.getOrNull() }
                                 ?: WidgetTypographyMode.Standard,
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+
+    fun schedulesToJson(schedules: List<NewsSchedule>): String {
+        val array = JSONArray()
+        schedules.forEach { schedule ->
+            array.put(
+                JSONObject()
+                    .put("id", schedule.id)
+                    .put("kind", schedule.kind.name)
+                    .put("hour", schedule.hour)
+                    .put("enabled", schedule.enabled)
+                    .put("lastRunAt", schedule.lastRunAt),
+            )
+        }
+        return array.toString()
+    }
+
+    fun schedulesFromJson(value: String): List<NewsSchedule> =
+        runCatching {
+            val array = JSONArray(value)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val kind = runCatching { ScheduleKind.valueOf(item.optString("kind")) }.getOrNull() ?: continue
+                    add(
+                        NewsSchedule(
+                            id = item.optString("id").ifBlank { "schedule-${kind.name}-${item.optInt("hour")}" },
+                            kind = kind,
+                            hour = item.optInt("hour").coerceIn(0, 23),
+                            enabled = item.optBoolean("enabled", true),
+                            lastRunAt = item.optLong("lastRunAt").takeIf { it > 0 },
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+
+    fun digestsToJson(digests: List<DigestEntry>): String {
+        val array = JSONArray()
+        digests.forEach { digest ->
+            array.put(
+                JSONObject()
+                    .put("id", digest.id)
+                    .put("createdAt", digest.createdAt)
+                    .put("title", digest.title)
+                    .put("body", digest.body)
+                    .put("storyIds", JSONArray(digest.storyIds)),
+            )
+        }
+        return array.toString()
+    }
+
+    fun digestsFromJson(value: String): List<DigestEntry> =
+        runCatching {
+            val array = JSONArray(value)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val body = item.optString("body")
+                    if (body.isBlank()) continue
+                    add(
+                        DigestEntry(
+                            id = item.optString("id").ifBlank { "digest-${item.optLong("createdAt")}" },
+                            createdAt = item.optLong("createdAt"),
+                            title = item.optString("title").ifBlank { "Digest" },
+                            body = body,
+                            storyIds = item.optJSONArray("storyIds")
+                                ?.let { ids ->
+                                    buildList {
+                                        for (idIndex in 0 until ids.length()) {
+                                            ids.optString(idIndex).takeIf { it.isNotBlank() }?.let(::add)
+                                        }
+                                    }
+                                }
+                                .orEmpty(),
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+
+    fun usageToJson(records: List<AiUsageRecord>): String {
+        val array = JSONArray()
+        records.forEach { record ->
+            array.put(
+                JSONObject()
+                    .put("id", record.id)
+                    .put("createdAt", record.createdAt)
+                    .put("action", record.action)
+                    .put("provider", record.provider)
+                    .put("storyTitle", record.storyTitle)
+                    .put("costCents", record.costCents),
+            )
+        }
+        return array.toString()
+    }
+
+    fun usageFromJson(value: String): List<AiUsageRecord> =
+        runCatching {
+            val array = JSONArray(value)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val action = item.optString("action")
+                    if (action.isBlank()) continue
+                    add(
+                        AiUsageRecord(
+                            id = item.optString("id").ifBlank { "usage-${item.optLong("createdAt")}-$index" },
+                            createdAt = item.optLong("createdAt"),
+                            action = action,
+                            provider = item.optString("provider").ifBlank { "local" },
+                            storyTitle = item.optString("storyTitle"),
+                            costCents = item.optInt("costCents"),
                         ),
                     )
                 }
