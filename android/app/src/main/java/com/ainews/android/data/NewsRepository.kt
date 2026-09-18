@@ -1,18 +1,33 @@
 package com.ainews.android.data
 
+import android.content.Context
+import androidx.room.Room
+import com.ainews.android.worker.RefreshNewsWorker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
 
 object NewsRepository {
-    private val seedStories = listOf(
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var initialized = false
+    private lateinit var appContext: Context
+    private lateinit var storyDao: StoryDao
+    private lateinit var runtimePreferences: RuntimePreferences
+
+    private fun seedStories(now: Long = System.currentTimeMillis()) = listOf(
         NewsStory(
             id = "bg-health-1",
             source = "Bulgaria Health Brief",
             sourceUrl = "https://example.com/health",
-            publishedAt = System.currentTimeMillis() - 35 * 60 * 1000,
-            fetchedAt = System.currentTimeMillis() - 10 * 60 * 1000,
+            publishedAt = now - 35 * 60 * 1000,
+            fetchedAt = now - 10 * 60 * 1000,
             title = "Public flu vaccination calendar expected next week",
             summary = "Health officials said the national schedule should clarify pharmacy availability, priority groups, and GP distribution windows.",
             topicLabels = listOf("Public health", "Bulgaria"),
@@ -26,8 +41,8 @@ object NewsRepository {
             id = "energy-grid-1",
             source = "Grid Watch",
             sourceUrl = "https://example.com/grid",
-            publishedAt = System.currentTimeMillis() - 70 * 60 * 1000,
-            fetchedAt = System.currentTimeMillis() - 10 * 60 * 1000,
+            publishedAt = now - 70 * 60 * 1000,
+            fetchedAt = now - 10 * 60 * 1000,
             title = "Regional grid upgrades move into winter readiness phase",
             summary = "Operators are prioritizing substations near major demand corridors as cold-weather load forecasts rise.",
             topicLabels = listOf("Energy", "Infrastructure"),
@@ -41,8 +56,8 @@ object NewsRepository {
             id = "ai-policy-1",
             source = "Policy Ledger",
             sourceUrl = "https://example.com/ai-policy",
-            publishedAt = System.currentTimeMillis() - 2 * 60 * 60 * 1000,
-            fetchedAt = System.currentTimeMillis() - 10 * 60 * 1000,
+            publishedAt = now - 2 * 60 * 60 * 1000,
+            fetchedAt = now - 10 * 60 * 1000,
             title = "EU agencies publish implementation notes for AI procurement",
             summary = "The guidance focuses on risk documentation, supplier evaluation, and record keeping for public-sector AI tools.",
             topicLabels = listOf("AI policy", "EU"),
@@ -56,7 +71,6 @@ object NewsRepository {
 
     private val _state = MutableStateFlow(
         NewsUiState(
-            stories = seedStories,
             monitors = listOf(
                 NewsMonitor(
                     id = "flu-bg",
@@ -70,6 +84,40 @@ object NewsRepository {
 
     val state: StateFlow<NewsUiState> = _state
 
+    fun initialize(context: Context) {
+        if (initialized) return
+        initialized = true
+        appContext = context.applicationContext
+
+        val database = Room.databaseBuilder(
+            appContext,
+            AiNewsDatabase::class.java,
+            "ai-news.db",
+        ).build()
+
+        storyDao = database.storyDao()
+        runtimePreferences = RuntimePreferences(appContext)
+
+        repositoryScope.launch {
+            if (storyDao.countStories() == 0) {
+                storyDao.upsertStories(seedStories().map { it.toEntity() })
+            }
+        }
+
+        repositoryScope.launch {
+            combine(
+                storyDao.observeStories(),
+                runtimePreferences.runtimeState,
+            ) { stories, runtime ->
+                stories.map { it.toModel() } to runtime
+            }.collect { (stories, runtime) ->
+                _state.update { current ->
+                    current.copy(stories = stories, runtime = runtime)
+                }
+            }
+        }
+    }
+
     fun selectStory(storyId: String?) {
         _state.update { it.copy(selectedStoryId = storyId, message = null) }
     }
@@ -77,6 +125,16 @@ object NewsRepository {
     fun toggleRuntime() {
         _state.update { current ->
             val enabled = !current.runtime.runtimeEnabled
+            val runtime = current.runtime.copy(
+                runtimeEnabled = enabled,
+                lastFetchStatus = if (enabled) FetchStatus.Idle else FetchStatus.Paused,
+            )
+            persistRuntime(runtime)
+            if (enabled) {
+                RefreshNewsWorker.schedule(appContext)
+            } else {
+                RefreshNewsWorker.cancel(appContext)
+            }
             current.copy(
                 runtime = current.runtime.copy(
                     runtimeEnabled = enabled,
@@ -90,11 +148,13 @@ object NewsRepository {
     fun toggleAi() {
         _state.update { current ->
             val enabled = !current.runtime.aiEnabled
+            val runtime = current.runtime.copy(
+                aiEnabled = enabled,
+                aiQueueStatus = if (enabled) "Idle" else "Paused",
+            )
+            persistRuntime(runtime)
             current.copy(
-                runtime = current.runtime.copy(
-                    aiEnabled = enabled,
-                    aiQueueStatus = if (enabled) "Idle" else "Paused",
-                ),
+                runtime = runtime,
                 message = if (enabled) "AI enrichment on" else "AI enrichment off",
             )
         }
@@ -112,11 +172,13 @@ object NewsRepository {
         }
 
         _state.update { current ->
+            val runtime = current.runtime.copy(
+                lastFetchStartedAt = System.currentTimeMillis(),
+                lastFetchStatus = FetchStatus.Fetching,
+            )
+            persistRuntime(runtime)
             current.copy(
-                runtime = current.runtime.copy(
-                    lastFetchStartedAt = System.currentTimeMillis(),
-                    lastFetchStatus = FetchStatus.Fetching,
-                ),
+                runtime = runtime,
                 message = "Fetching latest stories",
             )
         }
@@ -124,20 +186,28 @@ object NewsRepository {
         delay(650)
 
         _state.update { current ->
+            val runtime = current.runtime.copy(
+                lastFetchFinishedAt = System.currentTimeMillis(),
+                lastFetchStatus = FetchStatus.Success,
+            )
+            persistRuntime(runtime)
             current.copy(
-                runtime = current.runtime.copy(
-                    lastFetchFinishedAt = System.currentTimeMillis(),
-                    lastFetchStatus = FetchStatus.Success,
-                ),
+                runtime = runtime,
                 stories = current.stories.map { it.copy(isNew = false) },
                 message = "Feed refreshed - no new stories",
             )
+        }
+        withContext(Dispatchers.IO) {
+            storyDao.clearNewMarkers()
         }
     }
 
     fun hideStory(storyId: String) {
         _state.update { current ->
             val nextSelected = current.selectedStoryId.takeUnless { it == storyId }
+            repositoryScope.launch {
+                storyDao.hideStory(storyId, System.currentTimeMillis())
+            }
             current.copy(
                 selectedStoryId = nextSelected,
                 stories = current.stories.map { story ->
@@ -153,11 +223,20 @@ object NewsRepository {
     }
 
     fun restoreHidden() {
+        repositoryScope.launch {
+            storyDao.restoreHidden()
+        }
         _state.update { current ->
             current.copy(
                 stories = current.stories.map { it.copy(isHidden = false, hiddenAt = null) },
                 message = "Hidden stories restored",
             )
+        }
+    }
+
+    private fun persistRuntime(runtime: RuntimeState) {
+        repositoryScope.launch {
+            runtimePreferences.save(runtime)
         }
     }
 }
