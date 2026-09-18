@@ -6,6 +6,7 @@ import com.ainews.android.network.RemoteBackendClient
 import com.ainews.android.network.AiEnrichmentClient
 import com.ainews.android.network.RssFeedFetcher
 import com.ainews.android.worker.AutoPowerOffWorker
+import com.ainews.android.worker.MonitorScanWorker
 import com.ainews.android.worker.RefreshNewsWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -195,6 +196,7 @@ object NewsRepository {
             if (current.runtime.runtimeEnabled) {
                 RefreshNewsWorker.schedule(appContext, normalized.fetchCadenceMinutes)
             }
+            MonitorScanWorker.schedule(appContext, normalized.monitorScanHour)
             current.copy(
                 settings = normalized,
                 message = "Settings saved",

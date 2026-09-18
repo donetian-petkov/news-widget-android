@@ -10,6 +10,6 @@ class AiNewsApplication : Application() {
         super.onCreate()
         NewsRepository.initialize(this)
         RefreshNewsWorker.schedule(this, NewsRepository.state.value.settings.fetchCadenceMinutes)
-        MonitorScanWorker.schedule(this)
+        MonitorScanWorker.schedule(this, NewsRepository.state.value.settings.monitorScanHour)
     }
 }

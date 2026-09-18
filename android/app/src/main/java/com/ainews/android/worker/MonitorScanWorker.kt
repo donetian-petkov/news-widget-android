@@ -9,6 +9,9 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.widget.NewsWidget
+import java.time.Duration
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.util.concurrent.TimeUnit
 
 class MonitorScanWorker(
@@ -25,17 +28,29 @@ class MonitorScanWorker(
     companion object {
         private const val WORK_NAME = "ai-news-monitor-scan"
 
-        fun schedule(context: Context) {
+        fun schedule(context: Context, scanHour: Int = 20) {
             val request = PeriodicWorkRequestBuilder<MonitorScanWorker>(
                 24,
                 TimeUnit.HOURS,
-            ).build()
+            )
+                .setInitialDelay(initialDelayMillis(scanHour), TimeUnit.MILLISECONDS)
+                .build()
 
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
                 ExistingPeriodicWorkPolicy.UPDATE,
                 request,
             )
+        }
+
+        private fun initialDelayMillis(scanHour: Int): Long {
+            val now = LocalDateTime.now()
+            val targetTime = LocalTime.of(scanHour.coerceIn(0, 23), 0)
+            var target = now.with(targetTime)
+            if (!target.isAfter(now)) {
+                target = target.plusDays(1)
+            }
+            return Duration.between(now, target).toMillis().coerceAtLeast(0)
         }
     }
 }
