@@ -37,11 +37,11 @@ class WidgetInstancePreferences(context: Context) {
     }
 
     fun storyCount(appWidgetId: Int): Int =
-        prefs.getInt(countKey(appWidgetId), 5).coerceIn(5, 10)
+        prefs.getInt(countKey(appWidgetId), 15).coerceIn(5, 40)
 
     fun saveStoryCount(appWidgetId: Int, count: Int) {
         prefs.edit()
-            .putInt(countKey(appWidgetId), count.coerceIn(5, 10))
+            .putInt(countKey(appWidgetId), count.coerceIn(5, 40))
             .apply()
     }
 

@@ -20,6 +20,7 @@ import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.appwidget.CircularProgressIndicator
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
@@ -65,6 +66,9 @@ import com.ainews.android.data.effectiveFeedSourceIds
 import com.ainews.android.data.effectiveWidgetFeedSourceIds
 import com.ainews.android.network.ImageDiskCache
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDateTime
@@ -136,7 +140,7 @@ class NewsWidget : GlanceAppWidget() {
                 size.height < 220.dp -> 2
                 else -> preferredStoryCount
             }
-            val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(10)
+            val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(40)
             val showActions = size.width >= 220.dp && size.height >= 150.dp
             val showStatusText = size.width >= 260.dp
             val stackMode = settings.widgetLayoutMode == WidgetLayoutMode.Stack
@@ -163,8 +167,11 @@ class NewsWidget : GlanceAppWidget() {
                 verticalAlignment = Alignment.Top,
                 horizontalAlignment = Alignment.Start,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = GlanceModifier.defaultWeight()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = GlanceModifier.fillMaxWidth().padding(bottom = 4.dp),
+                ) {
+                    Column(modifier = GlanceModifier.defaultWeight().padding(end = 12.dp)) {
                         Text(
                             text = widgetFeedTitle,
                             style = TextStyle(
@@ -174,6 +181,7 @@ class NewsWidget : GlanceAppWidget() {
                             ),
                             maxLines = 1,
                         )
+                        Spacer(GlanceModifier.height(3.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             val healthy = state.runtime.runtimeEnabled &&
                                 state.runtime.lastFetchStatus != FetchStatus.Failed
@@ -203,17 +211,28 @@ class NewsWidget : GlanceAppWidget() {
                         backgroundRes = buttonBackground,
                         tint = if (state.runtime.runtimeEnabled) palette.statusText else palette.warningText,
                     )
-                    WidgetIconButton(
-                        iconRes = R.drawable.ic_refresh,
-                        contentDescription = "Refresh",
-                        action = actionRunCallback<RefreshAction>(),
-                        backgroundRes = buttonBackground,
-                        tint = if (state.runtime.lastFetchStatus == FetchStatus.Fetching) {
-                            palette.statusText
-                        } else {
-                            palette.header
-                        },
-                    )
+                    if (state.runtime.lastFetchStatus == FetchStatus.Fetching) {
+                        Box(
+                            modifier = GlanceModifier
+                                .padding(end = 8.dp)
+                                .background(ImageProvider(buttonBackground))
+                                .cornerRadius(12.dp)
+                                .padding(7.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                color = ColorProvider(palette.statusText),
+                                modifier = GlanceModifier.size(18.dp),
+                            )
+                        }
+                    } else {
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_refresh,
+                            contentDescription = "Refresh",
+                            action = actionRunCallback<RefreshAction>(),
+                            backgroundRes = buttonBackground,
+                            tint = palette.header,
+                        )
+                    }
                     WidgetIconButton(
                         iconRes = if (stackMode) R.drawable.ic_view_column else R.drawable.ic_view_stack,
                         contentDescription = if (stackMode) "Show column mode" else "Show stack mode",
@@ -223,15 +242,15 @@ class NewsWidget : GlanceAppWidget() {
                     )
                     if (!stackMode && size.width >= 300.dp) {
                         WidgetIconButton(
-                            iconRes = if (preferredStoryCount >= 10) {
+                            iconRes = if (preferredStoryCount >= 40) {
                                 R.drawable.ic_collapse_less
                             } else {
                                 R.drawable.ic_expand_more
                             },
-                            contentDescription = if (preferredStoryCount >= 10) {
-                                "Show 5 stories"
+                            contentDescription = if (preferredStoryCount >= 40) {
+                                "Show 15 stories"
                             } else {
-                                "Show 10 stories"
+                                "Show 40 stories"
                             },
                             action = actionRunCallback<ToggleWidgetStoryCountAction>(),
                             backgroundRes = buttonBackground,
@@ -499,8 +518,8 @@ private fun StatusDot(
 ) {
     Box(
         modifier = GlanceModifier
-            .padding(end = 6.dp, bottom = 4.dp)
-            .size(11.dp)
+            .padding(end = 7.dp)
+            .size(9.dp)
             .background(ColorProvider(if (healthy) palette.statusPill else palette.warningPill))
             .cornerRadius(3.dp),
     ) {}
@@ -521,7 +540,7 @@ private fun FeedDivider(
         ),
         maxLines = 1,
     )
-    Spacer(GlanceModifier.height(3.dp))
+    Spacer(GlanceModifier.height(5.dp))
 }
 
 @androidx.compose.runtime.Composable
@@ -638,10 +657,10 @@ private data class WidgetTypography(
 private fun widgetMetrics(densityMode: WidgetDensityMode): WidgetMetrics =
     when (densityMode) {
         WidgetDensityMode.Comfortable -> WidgetMetrics(
-            outerPadding = 12.dp,
-            cardPadding = 8.dp,
-            cardGap = 6.dp,
-            sectionGap = 7.dp,
+            outerPadding = 14.dp,
+            cardPadding = 10.dp,
+            cardGap = 8.dp,
+            sectionGap = 10.dp,
             thumbnailSize = 58.dp,
             thumbnailGap = 8.dp,
             summaryHeightThreshold = 180.dp,
@@ -649,10 +668,10 @@ private fun widgetMetrics(densityMode: WidgetDensityMode): WidgetMetrics =
         )
 
         WidgetDensityMode.Compact -> WidgetMetrics(
-            outerPadding = 8.dp,
-            cardPadding = 6.dp,
-            cardGap = 4.dp,
-            sectionGap = 5.dp,
+            outerPadding = 10.dp,
+            cardPadding = 8.dp,
+            cardGap = 6.dp,
+            sectionGap = 7.dp,
             thumbnailSize = 46.dp,
             thumbnailGap = 6.dp,
             summaryHeightThreshold = 260.dp,
@@ -743,7 +762,7 @@ private fun widgetMetaLine(
         !fetchEnabled -> "Fetch off"
         status == FetchStatus.Fetching -> "Updating"
         status == FetchStatus.Failed -> "Update failed"
-        else -> "Updated ${formatWidgetNow()}"
+        else -> "Updated ${formatWidgetClock()}"
     }
     val stories = if (storyCount == 1) "1 story" else "$storyCount stories"
     val mode = if (layoutMode == WidgetLayoutMode.Column) "" else " · one at a time"
@@ -771,7 +790,13 @@ class RefreshAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        NewsRepository.refreshNow()
+        coroutineScope {
+            val refresh = launch { NewsRepository.refreshNow() }
+            // Paint the spinner straight away instead of only showing the result.
+            delay(150)
+            NewsWidget().updateAll(context)
+            refresh.join()
+        }
         NewsWidget().updateAll(context)
     }
 }
@@ -805,7 +830,7 @@ class ToggleWidgetStoryCountAction : ActionCallback {
     ) {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
         val preferences = WidgetInstancePreferences(context)
-        val nextCount = if (preferences.storyCount(appWidgetId) >= 10) 5 else 10
+        val nextCount = if (preferences.storyCount(appWidgetId) >= 40) 15 else 40
         preferences.saveStoryCount(appWidgetId, nextCount)
         NewsWidget().updateAll(context)
     }
@@ -935,9 +960,9 @@ private fun NewsStory.widgetSummary(): String =
         ?: translation?.takeIf { it.isNotBlank() }
         ?: summary
 
-private fun formatWidgetNow(): String =
+private fun formatWidgetClock(): String =
     LocalDateTime.now()
-        .format(DateTimeFormatter.ofPattern("d MMM HH:mm", Locale.getDefault()))
+        .format(DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault()))
 
 private fun formatWidgetTime(epochMillis: Long): String =
     runCatching {

@@ -41,7 +41,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.rememberDrawerState
@@ -86,6 +88,7 @@ import com.ainews.android.data.FeedFetchRecord
 import com.ainews.android.data.FeedHealth
 import com.ainews.android.data.FeedSource
 import com.ainews.android.data.FeedViewMode
+import com.ainews.android.data.FetchStatus
 import com.ainews.android.data.NewsMonitor
 import com.ainews.android.data.NewsSchedule
 import com.ainews.android.data.NewsRepository
@@ -422,6 +425,7 @@ private enum class AppScreen {
     Schedules,
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NewsFeed(
     state: NewsUiState,
@@ -448,7 +452,11 @@ private fun NewsFeed(
     val scope = rememberCoroutineScope()
     val storyCount = state.prioritizedStories.size
 
-    Box(Modifier.fillMaxSize()) {
+    PullToRefreshBox(
+        isRefreshing = state.runtime.lastFetchStatus == FetchStatus.Fetching,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize(),
+    ) {
     LazyColumn(
         state = listState,
         verticalArrangement = Arrangement.spacedBy(7.dp),

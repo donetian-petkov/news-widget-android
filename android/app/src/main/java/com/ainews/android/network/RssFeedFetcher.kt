@@ -21,7 +21,7 @@ data class FeedFetchOutcome(
 class RssFeedFetcher {
     fun fetchTopStories(
         sources: List<FeedSource> = defaultFeedSources,
-        limitPerFeed: Int = 8,
+        limitPerFeed: Int = 20,
     ): List<NewsStory> = fetchTopStoriesWithHistory(sources, limitPerFeed).stories
 
     /**
@@ -30,7 +30,7 @@ class RssFeedFetcher {
      */
     fun fetchTopStoriesWithHistory(
         sources: List<FeedSource> = defaultFeedSources,
-        limitPerFeed: Int = 8,
+        limitPerFeed: Int = 20,
     ): FeedFetchOutcome {
         val stories = mutableListOf<NewsStory>()
         val records = mutableListOf<FeedFetchRecord>()
