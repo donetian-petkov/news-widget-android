@@ -126,6 +126,15 @@ object NewsRepository {
         _state.update { it.copy(selectedStoryId = storyId, message = null) }
     }
 
+    fun selectTopic(topic: String?) {
+        _state.update {
+            it.copy(
+                selectedTopic = topic,
+                message = topic?.let { selected -> "Filtering $selected" } ?: "Showing all topics",
+            )
+        }
+    }
+
     fun toggleRuntime() {
         _state.update { current ->
             val enabled = !current.runtime.runtimeEnabled

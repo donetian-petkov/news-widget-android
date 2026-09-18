@@ -98,6 +98,7 @@ fun AiNewsApp() {
                         NewsRepository.scanMonitorsNow()
                         scope.launch { NewsWidget().updateAll(context) }
                     },
+                    onSelectTopic = NewsRepository::selectTopic,
                     onOpenStory = NewsRepository::selectStory,
                     onHideStory = {
                         NewsRepository.hideStory(it)
@@ -119,6 +120,7 @@ private fun NewsFeed(
     onSetTimeout: (Long?) -> Unit,
     onRestoreHidden: () -> Unit,
     onScanMonitors: () -> Unit,
+    onSelectTopic: (String?) -> Unit,
     onOpenStory: (String) -> Unit,
     onHideStory: (String) -> Unit,
     onShareStory: (NewsStory) -> Unit,
@@ -136,6 +138,7 @@ private fun NewsFeed(
             onSetTimeout = onSetTimeout,
             onRestoreHidden = onRestoreHidden,
             onScanMonitors = onScanMonitors,
+            onSelectTopic = onSelectTopic,
         )
 
         Spacer(Modifier.height(14.dp))
@@ -157,6 +160,7 @@ private fun NewsFeed(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Header(
     state: NewsUiState,
@@ -166,6 +170,7 @@ private fun Header(
     onSetTimeout: (Long?) -> Unit,
     onRestoreHidden: () -> Unit,
     onScanMonitors: () -> Unit,
+    onSelectTopic: (String?) -> Unit,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -236,6 +241,24 @@ private fun Header(
 
         OutlinedButton(onClick = onScanMonitors) {
             Text("Scan monitors")
+        }
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            TopicChip(
+                text = "All",
+                selected = state.selectedTopic == null,
+                onClick = { onSelectTopic(null) },
+            )
+            state.availableTopics.forEach { topic ->
+                TopicChip(
+                    text = topic,
+                    selected = state.selectedTopic == topic,
+                    onClick = { onSelectTopic(topic) },
+                )
+            }
         }
 
         state.message?.let {
@@ -437,6 +460,29 @@ private fun Badge(text: String, background: Color, foreground: Color) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall,
+            color = foreground,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun TopicChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val background = if (selected) Color(0xFF0F172A) else Color(0xFFE2E8F0)
+    val foreground = if (selected) Color.White else Color(0xFF334155)
+    Box(
+        modifier = Modifier
+            .background(background, RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
             color = foreground,
             fontWeight = FontWeight.SemiBold,
         )

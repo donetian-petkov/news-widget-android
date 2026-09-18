@@ -76,12 +76,22 @@ data class NewsUiState(
     val feedTitle: String = "Top Stories",
     val stories: List<NewsStory> = emptyList(),
     val selectedStoryId: String? = null,
+    val selectedTopic: String? = null,
     val monitors: List<NewsMonitor> = emptyList(),
     val alertMatches: List<AlertMatch> = emptyList(),
     val message: String? = null,
 ) {
     val visibleStories: List<NewsStory>
-        get() = stories.filterNot { it.isHidden }
+        get() = stories
+            .filterNot { it.isHidden }
+            .filter { story -> selectedTopic == null || selectedTopic in story.topicLabels }
+
+    val availableTopics: List<String>
+        get() = stories
+            .filterNot { it.isHidden }
+            .flatMap { it.topicLabels }
+            .distinct()
+            .sorted()
 
     val prioritizedStories: List<NewsStory>
         get() {
