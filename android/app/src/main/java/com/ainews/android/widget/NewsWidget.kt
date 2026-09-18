@@ -11,6 +11,7 @@ import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
@@ -50,8 +51,10 @@ import androidx.compose.ui.unit.Dp
 class NewsWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val imageDiskCache = ImageDiskCache()
-        val cachedImages = NewsRepository.state.value.widgetStories
-            .take(5)
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
+        val instancePreferences = WidgetInstancePreferences(context)
+        val cachedImages = NewsRepository.state.value.prioritizedStories
+            .take(12)
             .mapNotNull { story ->
                 val imageUrl = story.imageUrl ?: return@mapNotNull null
                 val bitmap = imageDiskCache.loadCachedBitmap(context, imageUrl) ?: return@mapNotNull null
@@ -61,8 +64,23 @@ class NewsWidget : GlanceAppWidget() {
 
         provideContent {
             val state = NewsRepository.state.value
+            val preset = instancePreferences.presetId(appWidgetId)
+                ?.let { presetId -> state.settings.widgetPresets.firstOrNull { it.id == presetId } }
+            val settings = state.settings.copy(
+                widgetFeedSourceId = preset?.feedSourceId ?: state.settings.widgetFeedSourceId,
+                widgetLayoutMode = preset?.layoutMode ?: state.settings.widgetLayoutMode,
+                widgetBackgroundMode = preset?.backgroundMode ?: state.settings.widgetBackgroundMode,
+                widgetThemeMode = preset?.themeMode ?: state.settings.widgetThemeMode,
+                widgetDensityMode = preset?.densityMode ?: state.settings.widgetDensityMode,
+                widgetStackIndex = instancePreferences.stackIndex(appWidgetId),
+            )
+            val selectedFeed = state.feedSources.firstOrNull { it.id == settings.widgetFeedSourceId }
+            val widgetFeedTitle = selectedFeed?.title ?: "All Feeds"
+            val allWidgetStories = state.prioritizedStories.filter { story ->
+                selectedFeed == null || story.source == selectedFeed.title
+            }
             val size = LocalSize.current
-            val metrics = widgetMetrics(state.settings.widgetDensityMode)
+            val metrics = widgetMetrics(settings.widgetDensityMode)
             val baseStoryLimit = when {
                 size.width < 180.dp || size.height < 130.dp -> 1
                 size.height < 220.dp -> 2
@@ -73,17 +91,16 @@ class NewsWidget : GlanceAppWidget() {
             val showActions = size.width >= 220.dp && size.height >= 150.dp
             val showMetrics = size.width >= 220.dp
             val showThumbnails = size.width >= 260.dp && size.height >= 170.dp
-            val stackMode = state.settings.widgetLayoutMode == WidgetLayoutMode.Stack
-            val allWidgetStories = state.widgetStories
-            val stackIndex = state.widgetStackIndex
+            val stackMode = settings.widgetLayoutMode == WidgetLayoutMode.Stack
+            val stackIndex = normalizedStackIndex(settings.widgetStackIndex, allWidgetStories.size)
             val stories = if (stackMode) {
                 allWidgetStories.drop(stackIndex).take(1)
             } else {
                 allWidgetStories.take(storyLimit)
             }
             val palette = widgetPalette(
-                themeMode = state.settings.widgetThemeMode,
-                backgroundMode = state.settings.widgetBackgroundMode,
+                themeMode = settings.widgetThemeMode,
+                backgroundMode = settings.widgetBackgroundMode,
             )
             LocalContext.current
 
@@ -96,7 +113,7 @@ class NewsWidget : GlanceAppWidget() {
                 horizontalAlignment = Alignment.Start,
             ) {
                 Text(
-                    text = state.widgetFeedTitle,
+                    text = widgetFeedTitle,
                     style = TextStyle(
                         color = ColorProvider(palette.header),
                         fontWeight = FontWeight.Bold,
@@ -126,7 +143,7 @@ class NewsWidget : GlanceAppWidget() {
 
                 if (showMetrics) {
                     Text(
-                        text = "${allWidgetStories.size} stories - ${state.settings.widgetLayoutMode.name}",
+                        text = "${allWidgetStories.size} stories - ${settings.widgetLayoutMode.name}",
                         style = TextStyle(color = ColorProvider(palette.muted)),
                         maxLines = 1,
                     )
@@ -236,6 +253,12 @@ class NewsWidget : GlanceAppWidget() {
             }
         }
     }
+
+    override suspend fun onDelete(context: Context, glanceId: GlanceId) {
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        WidgetInstancePreferences(context).clear(appWidgetId)
+        super.onDelete(context, glanceId)
+    }
 }
 
 @androidx.compose.runtime.Composable
@@ -318,6 +341,11 @@ private fun widgetMetrics(densityMode: WidgetDensityMode): WidgetMetrics =
         )
     }
 
+private fun normalizedStackIndex(stackIndex: Int, storyCount: Int): Int {
+    if (storyCount == 0) return 0
+    return ((stackIndex % storyCount) + storyCount) % storyCount
+}
+
 private fun widgetPalette(
     themeMode: WidgetThemeMode,
     backgroundMode: WidgetBackgroundMode,
@@ -384,7 +412,8 @@ class PreviousStackStoryAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        NewsRepository.moveWidgetStack(-1)
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        WidgetInstancePreferences(context).moveStack(appWidgetId, -1)
         NewsWidget().updateAll(context)
     }
 }
@@ -395,7 +424,8 @@ class NextStackStoryAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        NewsRepository.moveWidgetStack(1)
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        WidgetInstancePreferences(context).moveStack(appWidgetId, 1)
         NewsWidget().updateAll(context)
     }
 }
