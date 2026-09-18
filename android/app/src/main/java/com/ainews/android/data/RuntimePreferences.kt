@@ -30,6 +30,8 @@ class RuntimePreferences(
                     ?: FetchStatus.Idle,
                 lastAiJobAt = prefs[Keys.lastAiJobAt]?.takeIf { it > 0 },
                 aiQueueStatus = prefs[Keys.aiQueueStatus] ?: "Idle",
+                aiBudgetSpentCents = ((prefs[Keys.aiBudgetSpentCents] ?: 0).toInt()).coerceAtLeast(0),
+                aiBudgetDay = prefs[Keys.aiBudgetDay].orEmpty(),
             )
             val settings = RuntimeSettings(
                 backendMode = prefs[Keys.backendMode]
@@ -74,6 +76,8 @@ class RuntimePreferences(
             prefs[Keys.lastFetchStatus] = runtime.lastFetchStatus.name
             prefs[Keys.lastAiJobAt] = runtime.lastAiJobAt ?: 0
             prefs[Keys.aiQueueStatus] = runtime.aiQueueStatus
+            prefs[Keys.aiBudgetSpentCents] = runtime.aiBudgetSpentCents.toLong().coerceAtLeast(0)
+            prefs[Keys.aiBudgetDay] = runtime.aiBudgetDay
         }
     }
 
@@ -111,6 +115,8 @@ class RuntimePreferences(
         val lastFetchStatus = stringPreferencesKey("last_fetch_status")
         val lastAiJobAt = longPreferencesKey("last_ai_job_at")
         val aiQueueStatus = stringPreferencesKey("ai_queue_status")
+        val aiBudgetSpentCents = longPreferencesKey("ai_budget_spent_cents")
+        val aiBudgetDay = stringPreferencesKey("ai_budget_day")
         val backendMode = stringPreferencesKey("backend_mode")
         val aiProvider = stringPreferencesKey("ai_provider")
         val remoteBackendUrl = stringPreferencesKey("remote_backend_url")

@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 
 object NewsRepository {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -325,14 +326,30 @@ object NewsRepository {
             return
         }
 
+        val settings = _state.value.settings
+        val apiKey = secureProviderKeyStore.load()
+        val today = LocalDate.now().toString()
+        val runtimeWithBudgetDay = current.runtime.resetAiBudgetIfNeeded(today)
+        val paidEnrichment = settings.aiProvider == AiProvider.OpenAI && !apiKey.isNullOrBlank()
+        val estimatedCostCents = if (paidEnrichment) candidates.size * OPENAI_ENRICHMENT_ESTIMATE_CENTS else 0
+        if (paidEnrichment && runtimeWithBudgetDay.aiBudgetSpentCents + estimatedCostCents > settings.aiDailyBudgetCents) {
+            val runtime = runtimeWithBudgetDay.copy(aiQueueStatus = "Budget paused")
+            persistRuntime(runtime)
+            _state.update {
+                it.copy(
+                    runtime = runtime,
+                    message = "AI budget reached - enrichment paused",
+                )
+            }
+            return
+        }
+
         _state.update { state ->
-            val runtime = state.runtime.copy(aiQueueStatus = "Running")
+            val runtime = runtimeWithBudgetDay.copy(aiQueueStatus = "Running")
             persistRuntime(runtime)
             state.copy(runtime = runtime, message = "Enriching ${candidates.size} stories")
         }
 
-        val settings = _state.value.settings
-        val apiKey = secureProviderKeyStore.load()
         var enrichedCount = 0
 
         withContext(Dispatchers.IO) {
@@ -363,6 +380,12 @@ object NewsRepository {
             val runtime = state.runtime.copy(
                 lastAiJobAt = System.currentTimeMillis(),
                 aiQueueStatus = "Idle",
+                aiBudgetSpentCents = if (paidEnrichment) {
+                    runtimeWithBudgetDay.aiBudgetSpentCents + estimatedCostCents
+                } else {
+                    runtimeWithBudgetDay.aiBudgetSpentCents
+                },
+                aiBudgetDay = today,
             )
             persistRuntime(runtime)
             state.copy(
@@ -651,4 +674,13 @@ object NewsRepository {
             runCatching { remoteBackendClient.hideStory(settings.remoteBackendUrl, storyId) }
         }
     }
+
+    private fun RuntimeState.resetAiBudgetIfNeeded(today: String): RuntimeState =
+        if (aiBudgetDay == today) {
+            this
+        } else {
+            copy(aiBudgetSpentCents = 0, aiBudgetDay = today)
+        }
+
+    private const val OPENAI_ENRICHMENT_ESTIMATE_CENTS = 2
 }

@@ -39,6 +39,8 @@ data class RuntimeState(
     val lastFetchStatus: FetchStatus = FetchStatus.Idle,
     val lastAiJobAt: Long? = null,
     val aiQueueStatus: String = "Idle",
+    val aiBudgetSpentCents: Int = 0,
+    val aiBudgetDay: String = "",
 ) {
     val statusText: String
         get() {
@@ -54,6 +56,9 @@ data class RuntimeState(
             return "$runtime - $fetch$timeout"
         }
 }
+
+val RuntimeState.aiBudgetText: String
+    get() = "AI spent ${aiBudgetSpentCents}c today"
 
 data class NewsStory(
     val id: String,

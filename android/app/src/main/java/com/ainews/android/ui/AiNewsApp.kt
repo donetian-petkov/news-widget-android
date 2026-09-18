@@ -60,6 +60,7 @@ import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.NewsStory
 import com.ainews.android.data.NewsUiState
 import com.ainews.android.data.RuntimeSettings
+import com.ainews.android.data.aiBudgetText
 import com.ainews.android.widget.NewsWidget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -353,6 +354,11 @@ private fun Header(
         OutlinedButton(onClick = onEnrich, enabled = state.runtime.runtimeEnabled && state.runtime.aiEnabled) {
             Text("Enrich AI")
         }
+        Text(
+            text = "${state.runtime.aiBudgetText} / ${state.settings.aiDailyBudgetCents}c budget",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color(0xFF64748B),
+        )
 
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -836,6 +842,11 @@ private fun SettingsScreen(
                     onValueChange = {
                         draft = draft.copy(aiDailyBudgetCents = it.toIntOrNull() ?: draft.aiDailyBudgetCents)
                     },
+                )
+                Text(
+                    text = "Current usage: ${settings.providerKeySaved.let { if (it) "provider key saved" else "local fallback" }}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF64748B),
                 )
             }
         }
