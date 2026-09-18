@@ -1,6 +1,7 @@
 package com.ainews.android.widget
 
 import android.content.Context
+import android.content.Intent
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.LocalContext
@@ -29,6 +30,7 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.ainews.android.MainActivity
 import com.ainews.android.data.NewsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -112,6 +114,12 @@ class NewsWidget : GlanceAppWidget() {
                         }
                         Row(horizontalAlignment = Alignment.Start) {
                             WidgetButton(
+                                text = "Open",
+                                action = actionRunCallback<OpenStoryAction>(
+                                    actionParametersOf(storyIdKey to story.id),
+                                ),
+                            )
+                            WidgetButton(
                                 text = "Hide",
                                 action = actionRunCallback<HideStoryAction>(
                                     actionParametersOf(storyIdKey to story.id),
@@ -172,6 +180,22 @@ class HideStoryAction : ActionCallback {
     ) {
         parameters[storyIdKey]?.let(NewsRepository::hideStory)
         NewsWidget().updateAll(context)
+    }
+}
+
+class OpenStoryAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val storyId = parameters[storyIdKey] ?: return
+        NewsRepository.selectStory(storyId)
+        val intent = Intent(context, MainActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_STORY_ID, storyId)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        context.startActivity(intent)
     }
 }
 
