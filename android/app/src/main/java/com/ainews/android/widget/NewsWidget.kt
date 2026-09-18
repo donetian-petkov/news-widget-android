@@ -72,6 +72,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+private const val WIDGET_IMAGE_LIMIT = 6
+
 class NewsWidget : GlanceAppWidget() {
     /**
      * Without this, Glance reports the widget's declared minimum size instead of the size it
@@ -84,10 +86,10 @@ class NewsWidget : GlanceAppWidget() {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
         val instancePreferences = WidgetInstancePreferences(context)
         val cachedImages = NewsRepository.state.value.prioritizedStories
-            .take(12)
+            .take(WIDGET_IMAGE_LIMIT)
             .mapNotNull { story ->
                 val imageUrl = story.imageUrl ?: return@mapNotNull null
-                val bitmap = imageDiskCache.loadCachedBitmap(context, imageUrl) ?: return@mapNotNull null
+                val bitmap = imageDiskCache.loadCachedThumbnail(context, imageUrl) ?: return@mapNotNull null
                 story.id to bitmap
             }
             .toMap()

@@ -19,6 +19,28 @@ class ImageDiskCache(
         return BitmapFactory.decodeFile(file.absolutePath)
     }
 
+    /**
+     * Widgets travel as RemoteViews with a hard bitmap budget (about 15 MB for the whole
+     * update), so widget images are decoded down to thumbnail size rather than full size.
+     */
+    fun loadCachedThumbnail(context: Context, imageUrl: String, maxSizePx: Int = THUMBNAIL_MAX_PX): Bitmap? {
+        val file = cachedFile(context, imageUrl) ?: return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        val largestSide = maxOf(bounds.outWidth, bounds.outHeight)
+        if (largestSide <= 0) return null
+
+        var sampleSize = 1
+        while (largestSide / (sampleSize * 2) >= maxSizePx) {
+            sampleSize *= 2
+        }
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.RGB_565
+        }
+        return BitmapFactory.decodeFile(file.absolutePath, options)
+    }
+
     suspend fun loadBitmap(context: Context, imageUrl: String): Bitmap? =
         withContext(Dispatchers.IO) {
             val file = getOrFetch(context, imageUrl) ?: return@withContext null
@@ -85,9 +107,10 @@ class ImageDiskCache(
 
     private fun nowMillis(): Long = System.currentTimeMillis()
 
-    private companion object {
+    companion object {
         const val CACHE_DIR_NAME = "story-images"
         const val PREFETCH_LIMIT = 12
+        const val THUMBNAIL_MAX_PX = 160
         const val DEFAULT_MAX_BYTES = 5L * 1024L * 1024L
         const val DEFAULT_MAX_AGE_MILLIS = 7L * 24L * 60L * 60L * 1000L
     }
