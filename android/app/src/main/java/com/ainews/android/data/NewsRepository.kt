@@ -2,6 +2,7 @@ package com.ainews.android.data
 
 import android.content.Context
 import androidx.room.Room
+import com.ainews.android.network.RssFeedFetcher
 import com.ainews.android.worker.RefreshNewsWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +21,7 @@ object NewsRepository {
     private lateinit var appContext: Context
     private lateinit var storyDao: StoryDao
     private lateinit var runtimePreferences: RuntimePreferences
+    private val rssFeedFetcher = RssFeedFetcher()
 
     private fun seedStories(now: Long = System.currentTimeMillis()) = listOf(
         NewsStory(
@@ -183,7 +185,40 @@ object NewsRepository {
             )
         }
 
-        delay(650)
+        val previousStories = _state.value.stories
+        val previousIds = previousStories.map { it.id }.toSet()
+        val hiddenById = previousStories.associateBy({ it.id }, { it.isHidden to it.hiddenAt })
+
+        val fetchedStories = withContext(Dispatchers.IO) {
+            runCatching { rssFeedFetcher.fetchTopStories() }.getOrDefault(emptyList())
+        }
+        delay(200)
+
+        if (fetchedStories.isEmpty()) {
+            _state.update { current ->
+                val runtime = current.runtime.copy(
+                    lastFetchFinishedAt = System.currentTimeMillis(),
+                    lastFetchStatus = FetchStatus.Failed,
+                )
+                persistRuntime(runtime)
+                current.copy(
+                    runtime = runtime,
+                    message = "Refresh failed - keeping saved stories",
+                )
+            }
+            return
+        }
+
+        val fetchedIds = fetchedStories.map { it.id }.toSet()
+        val sameStorySet = fetchedIds == previousIds
+        val storiesToStore = fetchedStories.map { story ->
+            val hiddenState = hiddenById[story.id]
+            story.copy(
+                isNew = !sameStorySet && story.id !in previousIds,
+                isHidden = hiddenState?.first ?: false,
+                hiddenAt = hiddenState?.second,
+            )
+        }
 
         _state.update { current ->
             val runtime = current.runtime.copy(
@@ -193,12 +228,19 @@ object NewsRepository {
             persistRuntime(runtime)
             current.copy(
                 runtime = runtime,
-                stories = current.stories.map { it.copy(isNew = false) },
-                message = "Feed refreshed - no new stories",
+                stories = storiesToStore,
+                message = if (sameStorySet) {
+                    "Feed refreshed - no new stories"
+                } else {
+                    "Feed refreshed - ${storiesToStore.count { it.isNew }} new"
+                },
             )
         }
         withContext(Dispatchers.IO) {
-            storyDao.clearNewMarkers()
+            storyDao.upsertStories(storiesToStore.map { it.toEntity() })
+            if (sameStorySet) {
+                storyDao.clearNewMarkers()
+            }
         }
     }
 
