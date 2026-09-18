@@ -6,14 +6,25 @@ import org.junit.Test
 
 class SetupChecklistTest {
     @Test
-    fun checklistTreatsAiAsOptionalForRssUse() {
+    fun checklistFlagsAiWhenNoProviderIsSetUp() {
         val state = NewsUiState(
             settings = RuntimeSettings(aiProvider = AiProvider.OpenAI, providerKeySaved = false),
         )
 
         val aiItem = setupChecklistItems(state).first { it.id == "ai" }
 
-        assertTrue(aiItem.complete)
+        assertFalse(aiItem.complete)
+    }
+
+    @Test
+    fun checklistCountsStoredKeyOrLocalModeAsSetUp() {
+        val withKey = NewsUiState(
+            settings = RuntimeSettings(aiProvider = AiProvider.OpenAI, providerKeySaved = true),
+        )
+        val localOnly = NewsUiState(settings = RuntimeSettings(aiProvider = AiProvider.LocalOnly))
+
+        assertTrue(setupChecklistItems(withKey).first { it.id == "ai" }.complete)
+        assertTrue(setupChecklistItems(localOnly).first { it.id == "ai" }.complete)
     }
 
     @Test
