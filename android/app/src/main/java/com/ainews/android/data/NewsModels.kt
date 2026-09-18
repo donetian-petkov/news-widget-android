@@ -27,6 +27,7 @@ data class RuntimeSettings(
     val monitorScanHour: Int = 20,
     val aiDailyBudgetCents: Int = 100,
     val providerKeySaved: Boolean = false,
+    val onboardingDismissed: Boolean = false,
 )
 
 data class RuntimeState(

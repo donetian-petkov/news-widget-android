@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.ainews.android.network.RemoteBackendClient
 import com.ainews.android.network.AiEnrichmentClient
+import com.ainews.android.network.ImageDiskCache
 import com.ainews.android.network.RssFeedFetcher
 import com.ainews.android.worker.AutoPowerOffWorker
 import com.ainews.android.worker.MonitorScanWorker
@@ -30,6 +31,7 @@ object NewsRepository {
     private val rssFeedFetcher = RssFeedFetcher()
     private val remoteBackendClient = RemoteBackendClient()
     private val aiEnrichmentClient = AiEnrichmentClient()
+    private val imageDiskCache = ImageDiskCache()
 
     private fun seedStories(now: Long = System.currentTimeMillis()) = listOf(
         NewsStory(
@@ -204,6 +206,7 @@ object NewsRepository {
             monitorScanHour = settings.monitorScanHour.coerceIn(0, 23),
             aiDailyBudgetCents = settings.aiDailyBudgetCents.coerceAtLeast(0),
             providerKeySaved = secureProviderKeyStore.hasKey(),
+            onboardingDismissed = settings.onboardingDismissed,
         )
         _state.update { current ->
             persistSettings(normalized)
@@ -230,6 +233,14 @@ object NewsRepository {
         persistSettings(nextSettings)
         _state.update {
             it.copy(settings = nextSettings, message = "Provider key cleared")
+        }
+    }
+
+    fun dismissOnboarding() {
+        val nextSettings = _state.value.settings.copy(onboardingDismissed = true)
+        persistSettings(nextSettings)
+        _state.update {
+            it.copy(settings = nextSettings, message = "Setup checklist hidden")
         }
     }
 
@@ -521,6 +532,7 @@ object NewsRepository {
         }
         withContext(Dispatchers.IO) {
             storyDao.upsertStories(storiesToStore.map { it.toEntity() })
+            imageDiskCache.prefetch(appContext, storiesToStore.mapNotNull { it.imageUrl })
             if (sameStorySet) {
                 storyDao.clearNewMarkers()
             }

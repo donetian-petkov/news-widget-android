@@ -45,6 +45,7 @@ class RuntimePreferences(
                 monitorScanHour = ((prefs[Keys.monitorScanHour] ?: 20).toInt()).coerceIn(0, 23),
                 aiDailyBudgetCents = ((prefs[Keys.aiDailyBudgetCents] ?: 100).toInt()).coerceAtLeast(0),
                 providerKeySaved = prefs[Keys.providerKeySaved] ?: false,
+                onboardingDismissed = prefs[Keys.onboardingDismissed] ?: false,
             )
             runtime to settings
         }
@@ -90,6 +91,7 @@ class RuntimePreferences(
             prefs[Keys.monitorScanHour] = settings.monitorScanHour.toLong().coerceIn(0, 23)
             prefs[Keys.aiDailyBudgetCents] = settings.aiDailyBudgetCents.toLong().coerceAtLeast(0)
             prefs[Keys.providerKeySaved] = settings.providerKeySaved
+            prefs[Keys.onboardingDismissed] = settings.onboardingDismissed
         }
     }
 
@@ -124,6 +126,7 @@ class RuntimePreferences(
         val monitorScanHour = longPreferencesKey("monitor_scan_hour")
         val aiDailyBudgetCents = longPreferencesKey("ai_daily_budget_cents")
         val providerKeySaved = booleanPreferencesKey("provider_key_saved")
+        val onboardingDismissed = booleanPreferencesKey("onboarding_dismissed")
         val monitorsJson = stringPreferencesKey("monitors_json")
         val feedSourcesJson = stringPreferencesKey("feed_sources_json")
     }

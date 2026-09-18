@@ -1,7 +1,6 @@
 package com.ainews.android.ui
 
 import android.content.Intent
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -61,11 +60,12 @@ import com.ainews.android.data.NewsStory
 import com.ainews.android.data.NewsUiState
 import com.ainews.android.data.RuntimeSettings
 import com.ainews.android.data.aiBudgetText
+import com.ainews.android.data.setupChecklistItems
+import com.ainews.android.network.ImageDiskCache
 import com.ainews.android.widget.NewsWidget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.net.URL
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -184,6 +184,7 @@ fun AiNewsApp() {
                     onOpenHidden = { showHidden = true },
                     onOpenMonitors = { showMonitors = true },
                     onOpenFeeds = { showFeeds = true },
+                    onDismissOnboarding = NewsRepository::dismissOnboarding,
                     onOpenStory = NewsRepository::selectStory,
                     onHideStory = {
                         NewsRepository.hideStory(it)
@@ -211,6 +212,7 @@ private fun NewsFeed(
     onOpenHidden: () -> Unit,
     onOpenMonitors: () -> Unit,
     onOpenFeeds: () -> Unit,
+    onDismissOnboarding: () -> Unit,
     onOpenStory: (String) -> Unit,
     onHideStory: (String) -> Unit,
     onShareStory: (NewsStory) -> Unit,
@@ -234,6 +236,7 @@ private fun NewsFeed(
             onOpenHidden = onOpenHidden,
             onOpenMonitors = onOpenMonitors,
             onOpenFeeds = onOpenFeeds,
+            onDismissOnboarding = onDismissOnboarding,
         )
 
         Spacer(Modifier.height(14.dp))
@@ -271,6 +274,7 @@ private fun Header(
     onOpenHidden: () -> Unit,
     onOpenMonitors: () -> Unit,
     onOpenFeeds: () -> Unit,
+    onDismissOnboarding: () -> Unit,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -386,6 +390,15 @@ private fun Header(
             )
         }
 
+        if (!state.settings.onboardingDismissed) {
+            SetupChecklistCard(
+                state = state,
+                onOpenSettings = onOpenSettings,
+                onOpenFeeds = onOpenFeeds,
+                onDismiss = onDismissOnboarding,
+            )
+        }
+
         val hiddenCount = state.stories.count { it.isHidden }
         if (hiddenCount > 0) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -421,6 +434,64 @@ private fun Header(
                             color = Color(0xFF334155),
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SetupChecklistCard(
+    state: NewsUiState,
+    onOpenSettings: () -> Unit,
+    onOpenFeeds: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val items = setupChecklistItems(state)
+    val completedCount = items.count { it.complete }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F9FF)),
+        border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(14.dp),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "Setup checklist",
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF075985),
+                    )
+                    Text(
+                        text = "$completedCount/${items.size} ready",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF0369A1),
+                    )
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Hide")
+                }
+            }
+            items.forEach { item ->
+                Text(
+                    text = "${if (item.complete) "Done" else "Todo"} - ${item.title}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (item.complete) Color(0xFF166534) else Color(0xFF334155),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onOpenFeeds) {
+                    Text("Feeds")
+                }
+                OutlinedButton(onClick = onOpenSettings) {
+                    Text("Settings")
                 }
             }
         }
@@ -1068,11 +1139,11 @@ private fun DetailBlock(title: String, body: String) {
 
 @Composable
 private fun StoryImage(imageUrl: String) {
+    val context = LocalContext.current
+    val imageDiskCache = remember { ImageDiskCache() }
     val bitmap by produceState<ImageBitmap?>(initialValue = null, imageUrl) {
         value = withContext(Dispatchers.IO) {
-            runCatching {
-                URL(imageUrl).openStream().use { BitmapFactory.decodeStream(it).asImageBitmap() }
-            }.getOrNull()
+            imageDiskCache.loadBitmap(context, imageUrl)?.asImageBitmap()
         }
     }
 

@@ -42,10 +42,12 @@ class NewsWidget : GlanceAppWidget() {
             val size = LocalSize.current
             val storyLimit = when {
                 size.width < 180.dp || size.height < 130.dp -> 1
-                size.height < 220.dp -> 3
+                size.height < 220.dp -> 2
                 else -> 5
             }
             val showSummary = size.width >= 260.dp && size.height >= 180.dp
+            val showActions = size.width >= 220.dp && size.height >= 150.dp
+            val showMetrics = size.width >= 220.dp
             val stories = state.prioritizedStories.take(storyLimit)
             LocalContext.current
 
@@ -67,13 +69,22 @@ class NewsWidget : GlanceAppWidget() {
                 Text(
                     text = state.runtime.statusText,
                     style = TextStyle(color = ColorProvider(Color(0xFF475569))),
+                    maxLines = 1,
                 )
 
-                Spacer(GlanceModifier.height(8.dp))
+                if (showMetrics) {
+                    Text(
+                        text = "${state.visibleStories.size} visible - ${state.monitors.count { it.enabled }} monitors",
+                        style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
+                        maxLines = 1,
+                    )
+                }
+
+                Spacer(GlanceModifier.height(7.dp))
 
                 Row(horizontalAlignment = Alignment.Start) {
                     WidgetButton(
-                        text = if (state.runtime.runtimeEnabled) "Power off" else "Power on",
+                        text = if (state.runtime.runtimeEnabled) "Off" else "On",
                         action = actionRunCallback<ToggleRuntimeAction>(),
                     )
                     WidgetButton(
@@ -82,20 +93,23 @@ class NewsWidget : GlanceAppWidget() {
                     )
                 }
 
-                Spacer(GlanceModifier.height(8.dp))
+                Spacer(GlanceModifier.height(6.dp))
 
                 stories.forEach { story ->
+                    val isAlert = state.alertMatches.any { it.storyId == story.id }
                     Column(
                         modifier = GlanceModifier
                             .fillMaxWidth()
-                            .padding(vertical = 5.dp),
+                            .background(
+                                ColorProvider(if (isAlert) Color(0xFFFEE2E2) else Color(0xFFFFFFFF)),
+                            )
+                            .cornerRadius(8.dp)
+                            .padding(8.dp),
                     ) {
                         Text(
-                            text = story.widgetTitle(
-                                isAlert = state.alertMatches.any { it.storyId == story.id },
-                            ),
+                            text = story.widgetTitle(isAlert = isAlert),
                             style = TextStyle(
-                                color = ColorProvider(Color(0xFF0F172A)),
+                                color = ColorProvider(if (isAlert) Color(0xFF7F1D1D) else Color(0xFF0F172A)),
                                 fontWeight = FontWeight.Bold,
                             ),
                             maxLines = 2,
@@ -112,27 +126,32 @@ class NewsWidget : GlanceAppWidget() {
                                 maxLines = 2,
                             )
                         }
-                        Row(horizontalAlignment = Alignment.Start) {
-                            WidgetButton(
-                                text = "Open",
-                                action = actionRunCallback<OpenStoryAction>(
-                                    actionParametersOf(storyIdKey to story.id),
-                                ),
-                            )
-                            WidgetButton(
-                                text = "Hide",
-                                action = actionRunCallback<HideStoryAction>(
-                                    actionParametersOf(storyIdKey to story.id),
-                                ),
-                            )
-                            WidgetButton(
-                                text = "Share",
-                                action = actionRunCallback<ShareStoryAction>(
-                                    actionParametersOf(storyIdKey to story.id),
-                                ),
-                            )
+                        if (showActions) {
+                            Row(horizontalAlignment = Alignment.Start) {
+                                WidgetButton(
+                                    text = "Open",
+                                    action = actionRunCallback<OpenStoryAction>(
+                                        actionParametersOf(storyIdKey to story.id),
+                                    ),
+                                )
+                                WidgetButton(
+                                    text = "Hide",
+                                    action = actionRunCallback<HideStoryAction>(
+                                        actionParametersOf(storyIdKey to story.id),
+                                    ),
+                                )
+                                if (size.width >= 300.dp) {
+                                    WidgetButton(
+                                        text = "Share",
+                                        action = actionRunCallback<ShareStoryAction>(
+                                            actionParametersOf(storyIdKey to story.id),
+                                        ),
+                                    )
+                                }
+                            }
                         }
                     }
+                    Spacer(GlanceModifier.height(6.dp))
                 }
 
                 if (stories.isEmpty()) {
@@ -217,7 +236,7 @@ private val storyIdKey = ActionParameters.Key<String>("story-id")
 
 private fun com.ainews.android.data.NewsStory.widgetTitle(isAlert: Boolean): String =
     when {
-        isAlert -> "ALERT - $title"
-        isNew -> "NEW - $title"
+        isAlert -> "ALERT: $title"
+        isNew -> "NEW: $title"
         else -> title
     }
