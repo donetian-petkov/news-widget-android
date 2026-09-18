@@ -105,7 +105,8 @@ class NewsWidget : GlanceAppWidget() {
             val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(6)
             val showSummary = size.width >= 260.dp && size.height >= metrics.summaryHeightThreshold
             val showActions = size.width >= 220.dp && size.height >= 150.dp
-            val showMetrics = size.width >= 220.dp
+            val showStatusText = size.width >= 260.dp
+            val showMetrics = size.width >= 260.dp && size.height >= 180.dp
             val showThumbnails = size.width >= 260.dp && size.height >= 170.dp
             val stackMode = settings.widgetLayoutMode == WidgetLayoutMode.Stack
             val stackIndex = normalizedStackIndex(settings.widgetStackIndex, allWidgetStories.size)
@@ -141,16 +142,27 @@ class NewsWidget : GlanceAppWidget() {
                 Row(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    StatusPill(
-                        text = compactStatusText(
-                            runtimeEnabled = state.runtime.runtimeEnabled,
-                            fetchEnabled = state.runtime.fetchEnabled,
-                            status = state.runtime.lastFetchStatus,
-                        ),
-                        healthy = state.runtime.runtimeEnabled && state.runtime.lastFetchStatus != FetchStatus.Failed,
+                    val healthy = state.runtime.runtimeEnabled && state.runtime.lastFetchStatus != FetchStatus.Failed
+                    StatusDot(
+                        healthy = healthy,
                         palette = palette,
-                        type = type,
                     )
+                    if (showStatusText) {
+                        Text(
+                            text = compactStatusText(
+                                runtimeEnabled = state.runtime.runtimeEnabled,
+                                fetchEnabled = state.runtime.fetchEnabled,
+                                status = state.runtime.lastFetchStatus,
+                            ),
+                            style = TextStyle(
+                                color = ColorProvider(if (healthy) palette.statusText else palette.warningText),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = type.meta,
+                            ),
+                            maxLines = 1,
+                        )
+                        Spacer(GlanceModifier.width(6.dp))
+                    }
                     WidgetIconButton(
                         iconRes = R.drawable.ic_power,
                         contentDescription = if (state.runtime.runtimeEnabled) "Power off" else "Power on",
@@ -165,7 +177,7 @@ class NewsWidget : GlanceAppWidget() {
 
                 if (showMetrics) {
                     Text(
-                        text = "${allWidgetStories.size} stories · ${settings.widgetLayoutMode.name} · ${settings.widgetDensityMode.name} · ${settings.widgetTypographyMode.name}",
+                        text = widgetSummaryText(allWidgetStories.size, settings.widgetLayoutMode),
                         style = TextStyle(
                             color = ColorProvider(palette.muted),
                             fontSize = type.meta,
@@ -295,29 +307,17 @@ class NewsWidget : GlanceAppWidget() {
 }
 
 @androidx.compose.runtime.Composable
-private fun StatusPill(
-    text: String,
+private fun StatusDot(
     healthy: Boolean,
     palette: WidgetPalette,
-    type: WidgetTypography,
 ) {
     Box(
         modifier = GlanceModifier
             .padding(end = 6.dp, bottom = 4.dp)
+            .size(11.dp)
             .background(ColorProvider(if (healthy) palette.statusPill else palette.warningPill))
-            .cornerRadius(10.dp)
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-    ) {
-        Text(
-            text = text,
-            style = TextStyle(
-                color = ColorProvider(if (healthy) palette.statusText else palette.warningText),
-                fontWeight = FontWeight.Bold,
-                fontSize = type.meta,
-            ),
-            maxLines = 1,
-        )
-    }
+            .cornerRadius(3.dp),
+    ) {}
 }
 
 @androidx.compose.runtime.Composable
@@ -497,6 +497,11 @@ private fun compactStatusText(
         else -> "Ready"
     }
     return "$runtime · $fetch"
+}
+
+private fun widgetSummaryText(storyCount: Int, layoutMode: WidgetLayoutMode): String {
+    val stories = if (storyCount == 1) "1 story" else "$storyCount stories"
+    return "$stories · ${layoutMode.name}"
 }
 
 class NewsWidgetReceiver : GlanceAppWidgetReceiver() {
