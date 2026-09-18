@@ -142,6 +142,12 @@ fun AiNewsApp() {
                         NewsRepository.scanMonitorsNow()
                         scope.launch { NewsWidget().updateAll(context) }
                     },
+                    onEnrich = {
+                        scope.launch {
+                            NewsRepository.enrichVisibleStories()
+                            NewsWidget().updateAll(context)
+                        }
+                    },
                     onSelectTopic = NewsRepository::selectTopic,
                     onOpenSettings = { showSettings = true },
                     onOpenHidden = { showHidden = true },
@@ -166,6 +172,7 @@ private fun NewsFeed(
     onSetTimeout: (Long?) -> Unit,
     onRestoreHidden: () -> Unit,
     onScanMonitors: () -> Unit,
+    onEnrich: () -> Unit,
     onSelectTopic: (String?) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHidden: () -> Unit,
@@ -186,6 +193,7 @@ private fun NewsFeed(
             onSetTimeout = onSetTimeout,
             onRestoreHidden = onRestoreHidden,
             onScanMonitors = onScanMonitors,
+            onEnrich = onEnrich,
             onSelectTopic = onSelectTopic,
             onOpenSettings = onOpenSettings,
             onOpenHidden = onOpenHidden,
@@ -220,6 +228,7 @@ private fun Header(
     onSetTimeout: (Long?) -> Unit,
     onRestoreHidden: () -> Unit,
     onScanMonitors: () -> Unit,
+    onEnrich: () -> Unit,
     onSelectTopic: (String?) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHidden: () -> Unit,
@@ -296,6 +305,9 @@ private fun Header(
 
         OutlinedButton(onClick = onScanMonitors) {
             Text("Scan monitors")
+        }
+        OutlinedButton(onClick = onEnrich, enabled = state.runtime.runtimeEnabled && state.runtime.aiEnabled) {
+            Text("Enrich AI")
         }
 
         FlowRow(

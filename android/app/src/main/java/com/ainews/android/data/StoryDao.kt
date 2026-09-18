@@ -28,4 +28,23 @@ interface StoryDao {
 
     @Query("UPDATE stories SET isHidden = 0, hiddenAt = NULL WHERE id = :storyId")
     fun restoreStory(storyId: String)
+
+    @Query(
+        """
+        UPDATE stories
+        SET aiFieldsAvailable = 1,
+            neutralTitle = :neutralTitle,
+            translation = :translation,
+            research = :research,
+            topicLabels = :topicLabels
+        WHERE id = :storyId
+        """,
+    )
+    fun updateEnrichment(
+        storyId: String,
+        neutralTitle: String?,
+        translation: String?,
+        research: String?,
+        topicLabels: String,
+    )
 }

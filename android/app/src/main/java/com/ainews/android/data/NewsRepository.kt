@@ -3,6 +3,7 @@ package com.ainews.android.data
 import android.content.Context
 import androidx.room.Room
 import com.ainews.android.network.RemoteBackendClient
+import com.ainews.android.network.AiEnrichmentClient
 import com.ainews.android.network.RssFeedFetcher
 import com.ainews.android.worker.AutoPowerOffWorker
 import com.ainews.android.worker.RefreshNewsWorker
@@ -26,6 +27,7 @@ object NewsRepository {
     private lateinit var secureProviderKeyStore: SecureProviderKeyStore
     private val rssFeedFetcher = RssFeedFetcher()
     private val remoteBackendClient = RemoteBackendClient()
+    private val aiEnrichmentClient = AiEnrichmentClient()
 
     private fun seedStories(now: Long = System.currentTimeMillis()) = listOf(
         NewsStory(
@@ -212,6 +214,74 @@ object NewsRepository {
         persistSettings(nextSettings)
         _state.update {
             it.copy(settings = nextSettings, message = "Provider key cleared")
+        }
+    }
+
+    suspend fun enrichVisibleStories(limit: Int = 3) {
+        val current = _state.value
+        if (!current.runtime.runtimeEnabled || !current.runtime.aiEnabled) {
+            _state.update {
+                it.copy(
+                    runtime = it.runtime.copy(aiQueueStatus = "Paused"),
+                    message = "Power on runtime and AI before enrichment",
+                )
+            }
+            return
+        }
+
+        val candidates = current.prioritizedStories
+            .filterNot { it.aiFieldsAvailable }
+            .take(limit)
+
+        if (candidates.isEmpty()) {
+            _state.update { it.copy(message = "No stories need enrichment") }
+            return
+        }
+
+        _state.update { state ->
+            val runtime = state.runtime.copy(aiQueueStatus = "Running")
+            persistRuntime(runtime)
+            state.copy(runtime = runtime, message = "Enriching ${candidates.size} stories")
+        }
+
+        val settings = _state.value.settings
+        val apiKey = secureProviderKeyStore.load()
+        var enrichedCount = 0
+
+        withContext(Dispatchers.IO) {
+            candidates.forEach { story ->
+                val enrichment = runCatching {
+                    when {
+                        settings.aiProvider == AiProvider.OpenAI && !apiKey.isNullOrBlank() ->
+                            aiEnrichmentClient.enrichWithOpenAi(apiKey, story)
+
+                        else -> aiEnrichmentClient.enrichLocally(story)
+                    }
+                }.getOrElse {
+                    aiEnrichmentClient.enrichLocally(story)
+                }
+
+                storyDao.updateEnrichment(
+                    storyId = story.id,
+                    neutralTitle = enrichment.neutralTitle,
+                    translation = enrichment.translation,
+                    research = enrichment.research,
+                    topicLabels = enrichment.topicLabels.joinToString("|"),
+                )
+                enrichedCount += 1
+            }
+        }
+
+        _state.update { state ->
+            val runtime = state.runtime.copy(
+                lastAiJobAt = System.currentTimeMillis(),
+                aiQueueStatus = "Idle",
+            )
+            persistRuntime(runtime)
+            state.copy(
+                runtime = runtime,
+                message = "Enriched $enrichedCount stories",
+            )
         }
     }
 
