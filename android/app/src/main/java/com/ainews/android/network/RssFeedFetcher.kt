@@ -45,6 +45,33 @@ class RssFeedFetcher(
                             inItem = true
                             current = MutableRssItem()
                         }
+                        if (inItem) {
+                            when (tag) {
+                                "enclosure" -> {
+                                    val type = parser.getAttributeValue(null, "type").orEmpty()
+                                    val url = parser.getAttributeValue(null, "url").orEmpty()
+                                    if (type.startsWith("image/") && url.isNotBlank()) {
+                                        current.imageUrl = current.imageUrl.ifBlank { url }
+                                    }
+                                }
+
+                                "media:content", "content" -> {
+                                    val medium = parser.getAttributeValue(null, "medium").orEmpty()
+                                    val type = parser.getAttributeValue(null, "type").orEmpty()
+                                    val url = parser.getAttributeValue(null, "url").orEmpty()
+                                    if ((medium == "image" || type.startsWith("image/")) && url.isNotBlank()) {
+                                        current.imageUrl = current.imageUrl.ifBlank { url }
+                                    }
+                                }
+
+                                "media:thumbnail", "thumbnail" -> {
+                                    val url = parser.getAttributeValue(null, "url").orEmpty()
+                                    if (url.isNotBlank()) {
+                                        current.imageUrl = current.imageUrl.ifBlank { url }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     XmlPullParser.TEXT -> {
@@ -81,6 +108,7 @@ class RssFeedFetcher(
         var summary: String = "",
         var link: String = "",
         var publishedAt: String = "",
+        var imageUrl: String = "",
     ) {
         fun toStory(source: FeedSource): NewsStory? {
             val cleanTitle = title.cleanHtml().trim()
@@ -88,6 +116,7 @@ class RssFeedFetcher(
             if (cleanTitle.isBlank() || cleanLink.isBlank()) return null
 
             val cleanSummary = summary.cleanHtml().trim().ifBlank { cleanTitle }
+            val cleanImageUrl = imageUrl.ifBlank { summary.extractFirstImageUrl() }
             val publishedMillis = parsePublishedAt(publishedAt)
             val id = stableId(cleanLink.ifBlank { "$source:$cleanTitle" })
 
@@ -99,6 +128,7 @@ class RssFeedFetcher(
                 fetchedAt = System.currentTimeMillis(),
                 title = cleanTitle,
                 summary = cleanSummary,
+                imageUrl = cleanImageUrl,
                 topicLabels = inferTopicLabels("$cleanTitle $cleanSummary"),
                 aiFieldsAvailable = false,
                 isNew = true,
@@ -145,3 +175,9 @@ private fun String.cleanHtml(): String =
         .replace("&#39;", "'")
         .replace("&nbsp;", " ")
         .replace(Regex("\\s+"), " ")
+
+private fun String.extractFirstImageUrl(): String? =
+    Regex("""<img[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+        .find(this)
+        ?.groupValues
+        ?.getOrNull(1)

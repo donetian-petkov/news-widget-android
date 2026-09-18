@@ -2,6 +2,7 @@ package com.ainews.android.data
 
 import android.content.Context
 import androidx.room.Room
+import com.ainews.android.network.RemoteBackendClient
 import com.ainews.android.network.RssFeedFetcher
 import com.ainews.android.worker.AutoPowerOffWorker
 import com.ainews.android.worker.RefreshNewsWorker
@@ -24,6 +25,7 @@ object NewsRepository {
     private lateinit var runtimePreferences: RuntimePreferences
     private lateinit var secureProviderKeyStore: SecureProviderKeyStore
     private val rssFeedFetcher = RssFeedFetcher()
+    private val remoteBackendClient = RemoteBackendClient()
 
     private fun seedStories(now: Long = System.currentTimeMillis()) = listOf(
         NewsStory(
@@ -281,8 +283,14 @@ object NewsRepository {
         val previousIds = previousStories.map { it.id }.toSet()
         val hiddenById = previousStories.associateBy({ it.id }, { it.isHidden to it.hiddenAt })
 
+        val settings = _state.value.settings
         val fetchedStories = withContext(Dispatchers.IO) {
-            runCatching { rssFeedFetcher.fetchTopStories() }.getOrDefault(emptyList())
+            runCatching {
+                when (settings.backendMode) {
+                    BackendMode.NativeRuntime -> rssFeedFetcher.fetchTopStories()
+                    BackendMode.RemoteBackend -> remoteBackendClient.fetchStories(settings.remoteBackendUrl)
+                }
+            }.getOrDefault(emptyList())
         }
         delay(200)
 
