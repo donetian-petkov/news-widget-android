@@ -284,10 +284,10 @@ private fun NewsFeed(
     onShareStory: (NewsStory) -> Unit,
 ) {
     LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
         modifier = Modifier
             .fillMaxSize()
-            .padding(14.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
         item {
             Header(
@@ -351,7 +351,7 @@ private fun Header(
     onUseLocalAi: () -> Unit,
 ) {
     Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -362,7 +362,7 @@ private fun Header(
             Column {
                 Text(
                     text = state.feedTitle,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -377,28 +377,27 @@ private fun Header(
         }
 
         FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Button(onClick = onPower) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_power),
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(if (state.runtime.runtimeEnabled) "Off" else "On")
-            }
+            HeaderActionButton(
+                text = if (state.runtime.runtimeEnabled) "Off" else "On",
+                iconRes = R.drawable.ic_power,
+                selected = state.runtime.runtimeEnabled,
+                onClick = onPower,
+            )
             HeaderIconButton(
                 iconRes = R.drawable.ic_refresh,
                 contentDescription = "Refresh",
                 enabled = state.runtime.runtimeEnabled,
                 onClick = onRefresh,
             )
-            OutlinedButton(onClick = onAi) {
-                Text(if (state.runtime.aiEnabled) "AI" else "AI off")
-            }
+            HeaderActionButton(
+                text = if (state.runtime.aiEnabled) "AI" else "AI off",
+                selected = state.runtime.aiEnabled,
+                onClick = onAi,
+            )
             HeaderIconButton(
                 iconRes = R.drawable.ic_settings,
                 contentDescription = "Settings",
@@ -414,17 +413,17 @@ private fun Header(
                 contentDescription = "Feeds",
                 onClick = onOpenFeeds,
             )
-            OutlinedButton(onClick = onScanMonitors) {
-                Text("Scan")
-            }
-            OutlinedButton(onClick = onEnrich, enabled = state.runtime.runtimeEnabled && state.runtime.aiEnabled) {
-                Text("Enrich")
-            }
+            HeaderActionButton(text = "Scan", onClick = onScanMonitors)
+            HeaderActionButton(
+                text = "Enrich",
+                enabled = state.runtime.runtimeEnabled && state.runtime.aiEnabled,
+                onClick = onEnrich,
+            )
         }
 
         FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
@@ -436,15 +435,9 @@ private fun Header(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedButton(onClick = { onSetTimeout(1) }, enabled = state.runtime.runtimeEnabled) {
-                Text("1h")
-            }
-            OutlinedButton(onClick = { onSetTimeout(4) }, enabled = state.runtime.runtimeEnabled) {
-                Text("4h")
-            }
-            OutlinedButton(onClick = { onSetTimeout(null) }) {
-                Text("Clear")
-            }
+            HeaderActionButton(text = "1h", enabled = state.runtime.runtimeEnabled, onClick = { onSetTimeout(1) })
+            HeaderActionButton(text = "4h", enabled = state.runtime.runtimeEnabled, onClick = { onSetTimeout(4) })
+            HeaderActionButton(text = "Clear", onClick = { onSetTimeout(null) })
         }
 
         Text(
@@ -538,12 +531,63 @@ private fun HeaderIconButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    OutlinedButton(onClick = onClick, enabled = enabled) {
+    Box(
+        modifier = Modifier
+            .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
         Icon(
             painter = painterResource(iconRes),
             contentDescription = contentDescription,
             modifier = Modifier.size(18.dp),
+            tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun HeaderActionButton(
+    text: String,
+    iconRes: Int? = null,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val background = when {
+        selected -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.outlineVariant
+    }
+    val foreground = when {
+        selected -> MaterialTheme.colorScheme.surface
+        enabled -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Box(
+        modifier = Modifier
+            .background(background, RoundedCornerShape(18.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            iconRes?.let {
+                Icon(
+                    painter = painterResource(it),
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = foreground,
+                )
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                color = foreground,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
     }
 }
 

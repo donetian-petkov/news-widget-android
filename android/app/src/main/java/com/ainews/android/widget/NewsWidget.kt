@@ -83,10 +83,12 @@ class NewsWidget : GlanceAppWidget() {
             val state = NewsRepository.state.value
             val preset = instancePreferences.presetId(appWidgetId)
                 ?.let { presetId -> state.settings.widgetPresets.firstOrNull { it.id == presetId } }
+            val instanceLayoutMode = instancePreferences.layoutMode(appWidgetId)
+                ?.let { modeName -> runCatching { WidgetLayoutMode.valueOf(modeName) }.getOrNull() }
             val settings = state.settings.copy(
                 widgetFeedSourceId = preset?.feedSourceId ?: state.settings.widgetFeedSourceId,
                 widgetFeedSourceIds = preset?.effectiveFeedSourceIds() ?: state.settings.effectiveWidgetFeedSourceIds(),
-                widgetLayoutMode = preset?.layoutMode ?: state.settings.widgetLayoutMode,
+                widgetLayoutMode = instanceLayoutMode ?: preset?.layoutMode ?: state.settings.widgetLayoutMode,
                 widgetBackgroundMode = preset?.backgroundMode ?: state.settings.widgetBackgroundMode,
                 widgetThemeMode = preset?.themeMode ?: state.settings.widgetThemeMode,
                 widgetDensityMode = preset?.densityMode ?: state.settings.widgetDensityMode,
@@ -107,16 +109,15 @@ class NewsWidget : GlanceAppWidget() {
             val size = LocalSize.current
             val metrics = widgetMetrics(settings.widgetDensityMode)
             val type = widgetTypography(settings.widgetTypographyMode)
+            val preferredStoryCount = instancePreferences.storyCount(appWidgetId)
             val baseStoryLimit = when {
                 size.width < 180.dp || size.height < 130.dp -> 1
                 size.height < 220.dp -> 2
-                else -> 5
+                else -> preferredStoryCount
             }
-            val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(6)
-            val showSummary = size.width >= 260.dp && size.height >= metrics.summaryHeightThreshold
+            val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(10)
             val showActions = size.width >= 220.dp && size.height >= 150.dp
             val showStatusText = size.width >= 260.dp
-            val showThumbnails = size.width >= 260.dp && size.height >= 170.dp
             val stackMode = settings.widgetLayoutMode == WidgetLayoutMode.Stack
             val stackIndex = normalizedStackIndex(settings.widgetStackIndex, allWidgetStories.size)
             val stories = if (stackMode) {
@@ -182,10 +183,30 @@ class NewsWidget : GlanceAppWidget() {
                         contentDescription = "Refresh",
                         action = actionRunCallback<RefreshAction>(),
                     )
+                    WidgetIconButton(
+                        iconRes = if (stackMode) R.drawable.ic_view_column else R.drawable.ic_view_stack,
+                        contentDescription = if (stackMode) "Show column mode" else "Show stack mode",
+                        action = actionRunCallback<ToggleWidgetLayoutAction>(),
+                    )
+                    if (!stackMode && size.width >= 260.dp) {
+                        WidgetIconButton(
+                            iconRes = if (preferredStoryCount >= 10) {
+                                R.drawable.ic_collapse_less
+                            } else {
+                                R.drawable.ic_expand_more
+                            },
+                            contentDescription = if (preferredStoryCount >= 10) {
+                                "Show 5 stories"
+                            } else {
+                                "Show 10 stories"
+                            },
+                            action = actionRunCallback<ToggleWidgetStoryCountAction>(),
+                        )
+                    }
                 }
 
                 Text(
-                    text = widgetSummaryText(allWidgetStories.size, settings.widgetLayoutMode),
+                    text = widgetSummaryText(allWidgetStories.size, settings.widgetLayoutMode, preferredStoryCount),
                     style = TextStyle(
                         color = ColorProvider(palette.muted),
                         fontSize = type.meta,
@@ -198,7 +219,7 @@ class NewsWidget : GlanceAppWidget() {
                 var previousSource: String? = null
                 stories.forEach { story ->
                     val isAlert = state.alertMatches.any { it.storyId == story.id }
-                    val thumbnail = cachedImages[story.id].takeIf { showThumbnails }
+                    val thumbnail = cachedImages[story.id].takeIf { stackMode && size.width >= 260.dp && size.height >= 170.dp }
                     if (!stackMode && previousSource != story.source) {
                         FeedDivider(
                             feedName = story.source,
@@ -227,7 +248,7 @@ class NewsWidget : GlanceAppWidget() {
                                 sourceLine = story.widgetSourceLine(),
                                 summary = story.widgetSummary(),
                                 isAlert = isAlert,
-                                showSummary = showSummary,
+                                showSummary = stackMode && size.width >= 260.dp && size.height >= metrics.summaryHeightThreshold,
                                 palette = palette,
                                 type = type,
                             )
@@ -247,13 +268,13 @@ class NewsWidget : GlanceAppWidget() {
                                     sourceLine = story.widgetSourceLine(),
                                     summary = story.widgetSummary(),
                                     isAlert = isAlert,
-                                    showSummary = showSummary,
+                                    showSummary = true,
                                     palette = palette,
                                     type = type,
                                 )
                             }
                         }
-                        if (showActions) {
+                        if (showActions && stackMode) {
                             Row(horizontalAlignment = Alignment.Start) {
                                 WidgetIconButton(
                                     iconRes = R.drawable.ic_open,
@@ -548,9 +569,13 @@ private fun compactStatusText(
     return "${formatWidgetNow()} · $runtime · $fetch"
 }
 
-private fun widgetSummaryText(storyCount: Int, layoutMode: WidgetLayoutMode): String {
+private fun widgetSummaryText(storyCount: Int, layoutMode: WidgetLayoutMode, preferredStoryCount: Int): String {
     val stories = if (storyCount == 1) "1 story" else "$storyCount stories"
-    return "$stories · ${layoutMode.name}"
+    return if (layoutMode == WidgetLayoutMode.Column) {
+        "$stories · Column · ${preferredStoryCount.coerceIn(5, 10)} shown"
+    } else {
+        "$stories · Stack"
+    }
 }
 
 class NewsWidgetReceiver : GlanceAppWidgetReceiver() {
@@ -575,6 +600,41 @@ class RefreshAction : ActionCallback {
         parameters: ActionParameters,
     ) {
         NewsRepository.refreshNow()
+        NewsWidget().updateAll(context)
+    }
+}
+
+class ToggleWidgetLayoutAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        val preferences = WidgetInstancePreferences(context)
+        val presetLayout = preferences.presetId(appWidgetId)
+            ?.let { presetId -> NewsRepository.state.value.settings.widgetPresets.firstOrNull { it.id == presetId } }
+            ?.layoutMode
+        val current = preferences.layoutMode(appWidgetId)
+            ?.let { runCatching { WidgetLayoutMode.valueOf(it) }.getOrNull() }
+            ?: presetLayout
+            ?: NewsRepository.state.value.settings.widgetLayoutMode
+        val next = if (current == WidgetLayoutMode.Stack) WidgetLayoutMode.Column else WidgetLayoutMode.Stack
+        preferences.saveLayoutMode(appWidgetId, next.name)
+        NewsWidget().updateAll(context)
+    }
+}
+
+class ToggleWidgetStoryCountAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        val preferences = WidgetInstancePreferences(context)
+        val nextCount = if (preferences.storyCount(appWidgetId) >= 10) 5 else 10
+        preferences.saveStoryCount(appWidgetId, nextCount)
         NewsWidget().updateAll(context)
     }
 }

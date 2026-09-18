@@ -22,6 +22,29 @@ class WidgetInstancePreferences(context: Context) {
     fun stackIndex(appWidgetId: Int): Int =
         prefs.getInt(stackKey(appWidgetId), 0).coerceAtLeast(0)
 
+    fun layoutMode(appWidgetId: Int): String? =
+        prefs.getString(layoutKey(appWidgetId), null)
+
+    fun saveLayoutMode(appWidgetId: Int, modeName: String?) {
+        prefs.edit().apply {
+            if (modeName == null) {
+                remove(layoutKey(appWidgetId))
+            } else {
+                putString(layoutKey(appWidgetId), modeName)
+            }
+            putInt(stackKey(appWidgetId), 0)
+        }.apply()
+    }
+
+    fun storyCount(appWidgetId: Int): Int =
+        prefs.getInt(countKey(appWidgetId), 5).coerceIn(5, 10)
+
+    fun saveStoryCount(appWidgetId: Int, count: Int) {
+        prefs.edit()
+            .putInt(countKey(appWidgetId), count.coerceIn(5, 10))
+            .apply()
+    }
+
     fun moveStack(appWidgetId: Int, offset: Int) {
         prefs.edit()
             .putInt(stackKey(appWidgetId), stackIndex(appWidgetId) + offset)
@@ -32,11 +55,15 @@ class WidgetInstancePreferences(context: Context) {
         prefs.edit()
             .remove(presetKey(appWidgetId))
             .remove(stackKey(appWidgetId))
+            .remove(layoutKey(appWidgetId))
+            .remove(countKey(appWidgetId))
             .apply()
     }
 
     private fun presetKey(appWidgetId: Int) = "widget_${appWidgetId}_preset"
     private fun stackKey(appWidgetId: Int) = "widget_${appWidgetId}_stack"
+    private fun layoutKey(appWidgetId: Int) = "widget_${appWidgetId}_layout"
+    private fun countKey(appWidgetId: Int) = "widget_${appWidgetId}_count"
 
     private companion object {
         const val PREFS_NAME = "widget_instances"
