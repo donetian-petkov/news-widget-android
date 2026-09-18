@@ -8,6 +8,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.ainews.android.data.NewsRepository
+import com.ainews.android.notifications.AlertNotifier
 import com.ainews.android.widget.NewsWidget
 import java.time.Duration
 import java.time.LocalDateTime
@@ -21,6 +22,10 @@ class MonitorScanWorker(
     override suspend fun doWork(): Result {
         NewsRepository.initialize(applicationContext)
         NewsRepository.scanMonitorsNow()
+        AlertNotifier(applicationContext).notifyMatches(
+            matches = NewsRepository.state.value.alertMatches,
+            stories = NewsRepository.state.value.stories,
+        )
         NewsWidget().updateAll(applicationContext)
         return Result.success()
     }
