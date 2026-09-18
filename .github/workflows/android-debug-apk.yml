@@ -46,16 +46,30 @@ jobs:
           name: ai-news-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Publish APK to tag release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish APK release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest-debug' }}
+          RELEASE_TITLE: ${{ startsWith(github.ref, 'refs/tags/') && format('AI News Android {0}', github.ref_name) || 'AI News Android latest debug APK' }}
         run: |
-          gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create "$TAG_NAME" --repo "$GITHUB_REPOSITORY" \
-              --title "AI News Android $TAG_NAME" \
-              --notes "Debug APK built by GitHub Actions from $TAG_NAME."
-          gh release upload "$TAG_NAME" app/build/outputs/apk/debug/app-debug.apk \
+          if [[ "$RELEASE_TAG" == "latest-debug" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
+            git push --force origin "refs/tags/$RELEASE_TAG"
+          fi
+
+          NOTES="Debug APK built by GitHub Actions from ${GITHUB_SHA}."
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_TITLE" \
+              --prerelease \
+              --notes "$NOTES"
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --title "$RELEASE_TITLE" \
+            --notes "$NOTES" \
+            --prerelease
+          gh release upload "$RELEASE_TAG" app/build/outputs/apk/debug/app-debug.apk \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
