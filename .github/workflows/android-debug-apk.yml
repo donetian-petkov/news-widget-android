@@ -68,6 +68,7 @@ jobs:
               --notes "$NOTES"
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --title "$RELEASE_TITLE" \
+            --target "$GITHUB_SHA" \
             --notes "$NOTES" \
             --prerelease
           gh release upload "$RELEASE_TAG" app/build/outputs/apk/debug/app-debug.apk \
