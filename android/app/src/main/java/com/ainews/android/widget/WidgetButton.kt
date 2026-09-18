@@ -22,14 +22,14 @@ fun WidgetButton(text: String, action: Action) {
     Box(
         modifier = GlanceModifier
             .padding(end = 6.dp, bottom = 4.dp)
-            .background(ColorProvider(Color(0xFFE0F2FE)))
-            .cornerRadius(6.dp)
+            .background(ColorProvider(Color(0xFFEDE9FE)))
+            .cornerRadius(10.dp)
             .clickable(action)
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .padding(horizontal = 9.dp, vertical = 5.dp),
     ) {
         Text(
             text = text,
-            style = TextStyle(color = ColorProvider(Color(0xFF075985))),
+            style = TextStyle(color = ColorProvider(Color(0xFF5B21B6))),
         )
     }
 }

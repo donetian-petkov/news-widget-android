@@ -207,6 +207,11 @@ object NewsRepository {
             aiDailyBudgetCents = settings.aiDailyBudgetCents.coerceAtLeast(0),
             providerKeySaved = secureProviderKeyStore.hasKey(),
             onboardingDismissed = settings.onboardingDismissed,
+            widgetFeedSourceId = settings.widgetFeedSourceId
+                .takeIf { id -> id == WIDGET_ALL_FEEDS || _state.value.feedSources.any { it.id == id } }
+                ?: WIDGET_ALL_FEEDS,
+            widgetLayoutMode = settings.widgetLayoutMode,
+            widgetBackgroundMode = settings.widgetBackgroundMode,
         )
         _state.update { current ->
             persistSettings(normalized)

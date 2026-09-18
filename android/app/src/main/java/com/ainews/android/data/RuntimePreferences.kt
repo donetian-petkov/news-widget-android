@@ -44,6 +44,13 @@ class RuntimePreferences(
                 aiDailyBudgetCents = ((prefs[Keys.aiDailyBudgetCents] ?: 100).toInt()).coerceAtLeast(0),
                 providerKeySaved = prefs[Keys.providerKeySaved] ?: false,
                 onboardingDismissed = prefs[Keys.onboardingDismissed] ?: false,
+                widgetFeedSourceId = prefs[Keys.widgetFeedSourceId] ?: WIDGET_ALL_FEEDS,
+                widgetLayoutMode = prefs[Keys.widgetLayoutMode]
+                    ?.let { runCatching { WidgetLayoutMode.valueOf(it) }.getOrNull() }
+                    ?: WidgetLayoutMode.Column,
+                widgetBackgroundMode = prefs[Keys.widgetBackgroundMode]
+                    ?.let { runCatching { WidgetBackgroundMode.valueOf(it) }.getOrNull() }
+                    ?: WidgetBackgroundMode.Solid,
             )
             runtime to settings
         }
@@ -90,6 +97,9 @@ class RuntimePreferences(
             prefs[Keys.aiDailyBudgetCents] = settings.aiDailyBudgetCents.toLong().coerceAtLeast(0)
             prefs[Keys.providerKeySaved] = settings.providerKeySaved
             prefs[Keys.onboardingDismissed] = settings.onboardingDismissed
+            prefs[Keys.widgetFeedSourceId] = settings.widgetFeedSourceId
+            prefs[Keys.widgetLayoutMode] = settings.widgetLayoutMode.name
+            prefs[Keys.widgetBackgroundMode] = settings.widgetBackgroundMode.name
         }
     }
 
@@ -125,6 +135,9 @@ class RuntimePreferences(
         val aiDailyBudgetCents = longPreferencesKey("ai_daily_budget_cents")
         val providerKeySaved = booleanPreferencesKey("provider_key_saved")
         val onboardingDismissed = booleanPreferencesKey("onboarding_dismissed")
+        val widgetFeedSourceId = stringPreferencesKey("widget_feed_source_id")
+        val widgetLayoutMode = stringPreferencesKey("widget_layout_mode")
+        val widgetBackgroundMode = stringPreferencesKey("widget_background_mode")
         val monitorsJson = stringPreferencesKey("monitors_json")
         val feedSourcesJson = stringPreferencesKey("feed_sources_json")
     }

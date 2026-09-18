@@ -13,11 +13,14 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -59,6 +62,9 @@ import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.NewsStory
 import com.ainews.android.data.NewsUiState
 import com.ainews.android.data.RuntimeSettings
+import com.ainews.android.data.WIDGET_ALL_FEEDS
+import com.ainews.android.data.WidgetBackgroundMode
+import com.ainews.android.data.WidgetLayoutMode
 import com.ainews.android.data.aiBudgetText
 import com.ainews.android.data.setupChecklistItems
 import com.ainews.android.network.ImageDiskCache
@@ -81,12 +87,15 @@ fun AiNewsApp() {
 
     MaterialTheme {
         Surface(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing),
             color = Color(0xFFF8FAFC),
         ) {
             if (showSettings) {
                 SettingsScreen(
                     settings = state.settings,
+                    feedSources = state.feedSources,
                     onBack = { showSettings = false },
                     onSave = {
                         NewsRepository.updateSettings(it)
@@ -309,31 +318,39 @@ private fun Header(
             StatusDot(active = state.runtime.runtimeEnabled)
         }
 
-        Row(
+        FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Button(onClick = onPower) {
-                Text(if (state.runtime.runtimeEnabled) "Power off" else "Power on")
+                Text(if (state.runtime.runtimeEnabled) "⏻ Off" else "⏻ On")
             }
             OutlinedButton(onClick = onRefresh, enabled = state.runtime.runtimeEnabled) {
-                Text("Refresh")
+                Text("↻")
             }
             OutlinedButton(onClick = onAi) {
-                Text(if (state.runtime.aiEnabled) "AI on" else "AI off")
+                Text(if (state.runtime.aiEnabled) "AI" else "AI off")
             }
             OutlinedButton(onClick = onOpenSettings) {
-                Text("Settings")
+                Text("⚙")
             }
             OutlinedButton(onClick = onOpenMonitors) {
-                Text("Monitors")
+                Text("◎")
             }
             OutlinedButton(onClick = onOpenFeeds) {
-                Text("Feeds")
+                Text("▤")
+            }
+            OutlinedButton(onClick = onScanMonitors) {
+                Text("Scan")
+            }
+            OutlinedButton(onClick = onEnrich, enabled = state.runtime.runtimeEnabled && state.runtime.aiEnabled) {
+                Text("Enrich")
             }
         }
 
-        Column(
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -346,25 +363,17 @@ private fun Header(
                 style = MaterialTheme.typography.labelMedium,
                 color = Color(0xFF475569),
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onSetTimeout(1) }, enabled = state.runtime.runtimeEnabled) {
-                    Text("1h")
-                }
-                OutlinedButton(onClick = { onSetTimeout(4) }, enabled = state.runtime.runtimeEnabled) {
-                    Text("4h")
-                }
-                OutlinedButton(onClick = { onSetTimeout(null) }) {
-                    Text("Clear")
-                }
+            OutlinedButton(onClick = { onSetTimeout(1) }, enabled = state.runtime.runtimeEnabled) {
+                Text("1h")
+            }
+            OutlinedButton(onClick = { onSetTimeout(4) }, enabled = state.runtime.runtimeEnabled) {
+                Text("4h")
+            }
+            OutlinedButton(onClick = { onSetTimeout(null) }) {
+                Text("Clear")
             }
         }
 
-        OutlinedButton(onClick = onScanMonitors) {
-            Text("Scan monitors")
-        }
-        OutlinedButton(onClick = onEnrich, enabled = state.runtime.runtimeEnabled && state.runtime.aiEnabled) {
-            Text("Enrich AI")
-        }
         Text(
             text = "${state.runtime.aiBudgetText} / ${state.settings.aiDailyBudgetCents}c budget",
             style = MaterialTheme.typography.labelMedium,
@@ -821,9 +830,11 @@ private fun HiddenStoriesScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SettingsScreen(
     settings: RuntimeSettings,
+    feedSources: List<FeedSource>,
     onBack: () -> Unit,
     onSave: (RuntimeSettings) -> Unit,
     onSaveKey: (String) -> Unit,
@@ -944,6 +955,69 @@ private fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF64748B),
                 )
+            }
+        }
+
+        item {
+            SettingsSection("Widget") {
+                Text(
+                    text = "Feed",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFF64748B),
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    TopicChip(
+                        text = "All feeds",
+                        selected = draft.widgetFeedSourceId == WIDGET_ALL_FEEDS,
+                        onClick = { draft = draft.copy(widgetFeedSourceId = WIDGET_ALL_FEEDS) },
+                    )
+                    feedSources.forEach { source ->
+                        TopicChip(
+                            text = source.title,
+                            selected = draft.widgetFeedSourceId == source.id,
+                            onClick = { draft = draft.copy(widgetFeedSourceId = source.id) },
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Layout",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFF64748B),
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    WidgetLayoutMode.values().forEach { mode ->
+                        TopicChip(
+                            text = mode.name,
+                            selected = draft.widgetLayoutMode == mode,
+                            onClick = { draft = draft.copy(widgetLayoutMode = mode) },
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Background",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFF64748B),
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    WidgetBackgroundMode.values().forEach { mode ->
+                        TopicChip(
+                            text = mode.name,
+                            selected = draft.widgetBackgroundMode == mode,
+                            onClick = { draft = draft.copy(widgetBackgroundMode = mode) },
+                        )
+                    }
+                }
             }
         }
 

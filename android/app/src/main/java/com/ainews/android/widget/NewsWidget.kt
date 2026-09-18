@@ -37,6 +37,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.ainews.android.MainActivity
 import com.ainews.android.data.NewsRepository
+import com.ainews.android.data.WidgetBackgroundMode
+import com.ainews.android.data.WidgetLayoutMode
 import com.ainews.android.network.ImageDiskCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,7 +46,7 @@ import kotlinx.coroutines.withContext
 class NewsWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val imageDiskCache = ImageDiskCache()
-        val cachedImages = NewsRepository.state.value.prioritizedStories
+        val cachedImages = NewsRepository.state.value.widgetStories
             .take(5)
             .mapNotNull { story ->
                 val imageUrl = story.imageUrl ?: return@mapNotNull null
@@ -65,23 +67,30 @@ class NewsWidget : GlanceAppWidget() {
             val showActions = size.width >= 220.dp && size.height >= 150.dp
             val showMetrics = size.width >= 220.dp
             val showThumbnails = size.width >= 260.dp && size.height >= 170.dp
-            val stories = state.prioritizedStories.take(storyLimit)
+            val stackMode = state.settings.widgetLayoutMode == WidgetLayoutMode.Stack
+            val stories = state.widgetStories.take(storyLimit)
+            val renderedStories = if (stackMode) stories.take(1) else stories
+            val widgetBackground = when (state.settings.widgetBackgroundMode) {
+                WidgetBackgroundMode.Solid -> Color(0xFFF8FAFC)
+                WidgetBackgroundMode.Transparent -> Color(0xDDF8FAFC)
+            }
             LocalContext.current
 
             Column(
                 modifier = GlanceModifier
                     .fillMaxSize()
-                    .background(ColorProvider(Color(0xFFF8FAFC)))
+                    .background(ColorProvider(widgetBackground))
                     .padding(12.dp),
                 verticalAlignment = Alignment.Top,
                 horizontalAlignment = Alignment.Start,
             ) {
                 Text(
-                    text = state.feedTitle,
+                    text = state.widgetFeedTitle,
                     style = TextStyle(
                         color = ColorProvider(Color(0xFF0F172A)),
                         fontWeight = FontWeight.Bold,
                     ),
+                    maxLines = 1,
                 )
                 Text(
                     text = state.runtime.statusText,
@@ -89,9 +98,22 @@ class NewsWidget : GlanceAppWidget() {
                     maxLines = 1,
                 )
 
+                Row(
+                    horizontalAlignment = Alignment.Start,
+                ) {
+                    WidgetButton(
+                        text = if (state.runtime.runtimeEnabled) "⏻" else "○",
+                        action = actionRunCallback<ToggleRuntimeAction>(),
+                    )
+                    WidgetButton(
+                        text = "↻",
+                        action = actionRunCallback<RefreshAction>(),
+                    )
+                }
+
                 if (showMetrics) {
                     Text(
-                        text = "${state.visibleStories.size} visible - ${state.monitors.count { it.enabled }} monitors",
+                        text = "${state.widgetStories.size} stories - ${state.settings.widgetLayoutMode.name}",
                         style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
                         maxLines = 1,
                     )
@@ -99,20 +121,7 @@ class NewsWidget : GlanceAppWidget() {
 
                 Spacer(GlanceModifier.height(7.dp))
 
-                Row(horizontalAlignment = Alignment.Start) {
-                    WidgetButton(
-                        text = if (state.runtime.runtimeEnabled) "Off" else "On",
-                        action = actionRunCallback<ToggleRuntimeAction>(),
-                    )
-                    WidgetButton(
-                        text = "Refresh",
-                        action = actionRunCallback<RefreshAction>(),
-                    )
-                }
-
-                Spacer(GlanceModifier.height(6.dp))
-
-                stories.forEach { story ->
+                renderedStories.forEach { story ->
                     val isAlert = state.alertMatches.any { it.storyId == story.id }
                     val thumbnail = cachedImages[story.id].takeIf { showThumbnails }
                     Column(
@@ -155,20 +164,20 @@ class NewsWidget : GlanceAppWidget() {
                         if (showActions) {
                             Row(horizontalAlignment = Alignment.Start) {
                                 WidgetButton(
-                                    text = "Open",
+                                    text = "↗",
                                     action = actionRunCallback<OpenStoryAction>(
                                         actionParametersOf(storyIdKey to story.id),
                                     ),
                                 )
                                 WidgetButton(
-                                    text = "Hide",
+                                    text = "⊘",
                                     action = actionRunCallback<HideStoryAction>(
                                         actionParametersOf(storyIdKey to story.id),
                                     ),
                                 )
                                 if (size.width >= 300.dp) {
                                     WidgetButton(
-                                        text = "Share",
+                                        text = "⇪",
                                         action = actionRunCallback<ShareStoryAction>(
                                             actionParametersOf(storyIdKey to story.id),
                                         ),
@@ -178,6 +187,14 @@ class NewsWidget : GlanceAppWidget() {
                         }
                     }
                     Spacer(GlanceModifier.height(6.dp))
+                }
+
+                if (stackMode && stories.size > 1 && showMetrics) {
+                    Text(
+                        text = "1/${stories.size} - newest story",
+                        style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
+                        maxLines = 1,
+                    )
                 }
 
                 if (stories.isEmpty()) {

@@ -19,6 +19,16 @@ enum class AiProvider {
     LocalOnly,
 }
 
+enum class WidgetLayoutMode {
+    Column,
+    Stack,
+}
+
+enum class WidgetBackgroundMode {
+    Solid,
+    Transparent,
+}
+
 data class RuntimeSettings(
     val backendMode: BackendMode = BackendMode.NativeRuntime,
     val aiProvider: AiProvider = AiProvider.OpenAI,
@@ -28,6 +38,9 @@ data class RuntimeSettings(
     val aiDailyBudgetCents: Int = 100,
     val providerKeySaved: Boolean = false,
     val onboardingDismissed: Boolean = false,
+    val widgetFeedSourceId: String = WIDGET_ALL_FEEDS,
+    val widgetLayoutMode: WidgetLayoutMode = WidgetLayoutMode.Column,
+    val widgetBackgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.Solid,
 )
 
 data class RuntimeState(
@@ -140,4 +153,17 @@ data class NewsUiState(
 
     val selectedStory: NewsStory?
         get() = stories.firstOrNull { it.id == selectedStoryId }
+
+    val widgetFeedTitle: String
+        get() = feedSources.firstOrNull { it.id == settings.widgetFeedSourceId }?.title ?: "All Feeds"
+
+    val widgetStories: List<NewsStory>
+        get() {
+            val selectedFeed = feedSources.firstOrNull { it.id == settings.widgetFeedSourceId }
+            return prioritizedStories.filter { story ->
+                selectedFeed == null || story.source == selectedFeed.title
+            }
+        }
 }
+
+const val WIDGET_ALL_FEEDS = "all"
