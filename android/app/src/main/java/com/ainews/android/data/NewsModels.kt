@@ -83,6 +83,13 @@ data class NewsMonitor(
     val lastMatchExplanation: String? = null,
 )
 
+val defaultNewsMonitors = listOf(
+    NewsMonitor(
+        id = "flu-bg",
+        sentence = "when flu vaccinations will be available to the public in Bulgaria",
+    ),
+)
+
 data class AlertMatch(
     val id: String,
     val monitorId: String,

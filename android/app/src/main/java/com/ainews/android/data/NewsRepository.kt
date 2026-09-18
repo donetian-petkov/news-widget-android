@@ -80,15 +80,7 @@ object NewsRepository {
 
     private val _state = MutableStateFlow(
         NewsUiState(
-            monitors = listOf(
-                NewsMonitor(
-                    id = "flu-bg",
-                    sentence = "when flu vaccinations will be available to the public in Bulgaria",
-                    lastMatchStoryId = "bg-health-1",
-                    lastMatchConfidence = 0.9,
-                    lastMatchExplanation = "The top health story mentions expected public vaccination calendar availability.",
-                ),
-            ),
+            monitors = defaultNewsMonitors,
         ),
     )
 
@@ -119,9 +111,15 @@ object NewsRepository {
             combine(
                 storyDao.observeStories(),
                 runtimePreferences.runtimeState,
-            ) { stories, runtimeWithSettings ->
-                Triple(stories.map { it.toModel() }, runtimeWithSettings.first, runtimeWithSettings.second)
-            }.collect { (stories, runtime, settings) ->
+                runtimePreferences.monitorState,
+            ) { stories, runtimeWithSettings, monitors ->
+                Triple(
+                    stories.map { it.toModel() },
+                    runtimeWithSettings.first to runtimeWithSettings.second,
+                    monitors,
+                )
+            }.collect { (stories, runtimeWithSettings, monitors) ->
+                val (runtime, settings) = runtimeWithSettings
                 _state.update { current ->
                     current.copy(
                         stories = stories,
@@ -129,6 +127,7 @@ object NewsRepository {
                         settings = settings.copy(
                             providerKeySaved = settings.providerKeySaved || secureProviderKeyStore.hasKey(),
                         ),
+                        monitors = monitors,
                     )
                 }
             }
@@ -216,6 +215,46 @@ object NewsRepository {
         persistSettings(nextSettings)
         _state.update {
             it.copy(settings = nextSettings, message = "Provider key cleared")
+        }
+    }
+
+    fun addMonitor(sentence: String) {
+        val cleanSentence = sentence.trim()
+        if (cleanSentence.isBlank()) return
+        val monitor = NewsMonitor(
+            id = "monitor-${System.currentTimeMillis()}",
+            sentence = cleanSentence,
+        )
+        _state.update { current ->
+            val monitors = current.monitors + monitor
+            persistMonitors(monitors)
+            current.copy(monitors = monitors, message = "Monitor added")
+        }
+    }
+
+    fun toggleMonitor(monitorId: String) {
+        _state.update { current ->
+            val monitors = current.monitors.map { monitor ->
+                if (monitor.id == monitorId) {
+                    monitor.copy(enabled = !monitor.enabled)
+                } else {
+                    monitor
+                }
+            }
+            persistMonitors(monitors)
+            current.copy(monitors = monitors, message = "Monitor updated")
+        }
+    }
+
+    fun deleteMonitor(monitorId: String) {
+        _state.update { current ->
+            val monitors = current.monitors.filterNot { it.id == monitorId }
+            persistMonitors(monitors)
+            current.copy(
+                monitors = monitors,
+                alertMatches = current.alertMatches.filterNot { it.monitorId == monitorId },
+                message = "Monitor deleted",
+            )
         }
     }
 
@@ -489,19 +528,25 @@ object NewsRepository {
             }
 
         _state.update { state ->
+            val monitors = state.monitors.map { monitor ->
+                val match = matches.firstOrNull { it.monitorId == monitor.id }
+                if (match == null) {
+                    monitor.copy(
+                        lastMatchStoryId = null,
+                        lastMatchConfidence = null,
+                        lastMatchExplanation = null,
+                    )
+                } else {
+                    monitor.copy(
+                        lastMatchStoryId = match.storyId,
+                        lastMatchConfidence = match.confidence,
+                        lastMatchExplanation = match.explanation,
+                    )
+                }
+            }
+            persistMonitors(monitors)
             state.copy(
-                monitors = state.monitors.map { monitor ->
-                    val match = matches.firstOrNull { it.monitorId == monitor.id }
-                    if (match == null) {
-                        monitor
-                    } else {
-                        monitor.copy(
-                            lastMatchStoryId = match.storyId,
-                            lastMatchConfidence = match.confidence,
-                            lastMatchExplanation = match.explanation,
-                        )
-                    }
-                },
+                monitors = monitors,
                 alertMatches = matches,
                 message = if (matches.isEmpty()) {
                     "Monitor scan complete - no matches"
@@ -521,6 +566,12 @@ object NewsRepository {
     private fun persistSettings(settings: RuntimeSettings) {
         repositoryScope.launch {
             runtimePreferences.saveSettings(settings)
+        }
+    }
+
+    private fun persistMonitors(monitors: List<NewsMonitor>) {
+        repositoryScope.launch {
+            runtimePreferences.saveMonitors(monitors)
         }
     }
 }

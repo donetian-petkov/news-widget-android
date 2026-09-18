@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.glance.appwidget.updateAll
 import com.ainews.android.data.AiProvider
 import com.ainews.android.data.BackendMode
+import com.ainews.android.data.NewsMonitor
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.NewsStory
 import com.ainews.android.data.NewsUiState
@@ -73,6 +74,7 @@ fun AiNewsApp() {
     val selectedStory = state.selectedStory
     var showSettings by remember { mutableStateOf(false) }
     var showHidden by remember { mutableStateOf(false) }
+    var showMonitors by remember { mutableStateOf(false) }
 
     MaterialTheme {
         Surface(
@@ -100,6 +102,18 @@ fun AiNewsApp() {
                     },
                     onRestoreAll = {
                         NewsRepository.restoreHidden()
+                        scope.launch { NewsWidget().updateAll(context) }
+                    },
+                )
+            } else if (showMonitors) {
+                MonitorScreen(
+                    monitors = state.monitors,
+                    onBack = { showMonitors = false },
+                    onAddMonitor = NewsRepository::addMonitor,
+                    onToggleMonitor = NewsRepository::toggleMonitor,
+                    onDeleteMonitor = NewsRepository::deleteMonitor,
+                    onScanMonitors = {
+                        NewsRepository.scanMonitorsNow()
                         scope.launch { NewsWidget().updateAll(context) }
                     },
                 )
@@ -151,6 +165,7 @@ fun AiNewsApp() {
                     onSelectTopic = NewsRepository::selectTopic,
                     onOpenSettings = { showSettings = true },
                     onOpenHidden = { showHidden = true },
+                    onOpenMonitors = { showMonitors = true },
                     onOpenStory = NewsRepository::selectStory,
                     onHideStory = {
                         NewsRepository.hideStory(it)
@@ -176,6 +191,7 @@ private fun NewsFeed(
     onSelectTopic: (String?) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHidden: () -> Unit,
+    onOpenMonitors: () -> Unit,
     onOpenStory: (String) -> Unit,
     onHideStory: (String) -> Unit,
     onShareStory: (NewsStory) -> Unit,
@@ -197,6 +213,7 @@ private fun NewsFeed(
             onSelectTopic = onSelectTopic,
             onOpenSettings = onOpenSettings,
             onOpenHidden = onOpenHidden,
+            onOpenMonitors = onOpenMonitors,
         )
 
         Spacer(Modifier.height(14.dp))
@@ -232,6 +249,7 @@ private fun Header(
     onSelectTopic: (String?) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHidden: () -> Unit,
+    onOpenMonitors: () -> Unit,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -274,6 +292,9 @@ private fun Header(
             }
             OutlinedButton(onClick = onOpenSettings) {
                 Text("Settings")
+            }
+            OutlinedButton(onClick = onOpenMonitors) {
+                Text("Monitors")
             }
         }
 
@@ -370,6 +391,115 @@ private fun Header(
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF334155),
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MonitorScreen(
+    monitors: List<NewsMonitor>,
+    onBack: () -> Unit,
+    onAddMonitor: (String) -> Unit,
+    onToggleMonitor: (String) -> Unit,
+    onDeleteMonitor: (String) -> Unit,
+    onScanMonitors: () -> Unit,
+) {
+    var draft by remember { mutableStateOf("") }
+
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(18.dp),
+    ) {
+        item {
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column {
+                    Text(
+                        text = "Monitors",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A),
+                    )
+                    Text(
+                        text = "Alert sentences scanned against titles and summaries",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF64748B),
+                    )
+                }
+                TextButton(onClick = onBack) {
+                    Text("Done")
+                }
+            }
+        }
+
+        item {
+            SettingsSection("New monitor") {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    label = { Text("Alert sentence") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            onAddMonitor(draft)
+                            draft = ""
+                        },
+                        enabled = draft.isNotBlank(),
+                    ) {
+                        Text("Add")
+                    }
+                    OutlinedButton(onClick = onScanMonitors) {
+                        Text("Scan now")
+                    }
+                }
+            }
+        }
+
+        items(monitors, key = { it.id }) { monitor ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(14.dp),
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = if (monitor.enabled) "Enabled" else "Paused",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (monitor.enabled) Color(0xFF166534) else Color(0xFF64748B),
+                        )
+                        Switch(
+                            checked = monitor.enabled,
+                            onCheckedChange = { onToggleMonitor(monitor.id) },
+                        )
+                    }
+                    Text(monitor.sentence, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
+                    monitor.lastMatchExplanation?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF334155),
+                        )
+                    }
+                    TextButton(onClick = { onDeleteMonitor(monitor.id) }) {
+                        Text("Delete")
                     }
                 }
             }

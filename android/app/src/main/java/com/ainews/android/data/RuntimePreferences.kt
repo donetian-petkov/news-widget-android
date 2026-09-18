@@ -8,6 +8,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import org.json.JSONArray
+import org.json.JSONObject
 
 private val Context.runtimeDataStore by preferencesDataStore(name = "runtime")
 
@@ -45,6 +47,14 @@ class RuntimePreferences(
             runtime to settings
         }
 
+    val monitorState: Flow<List<NewsMonitor>> =
+        context.runtimeDataStore.data.map { prefs ->
+            prefs[Keys.monitorsJson]
+                ?.toMonitors()
+                ?.takeIf { it.isNotEmpty() }
+                ?: defaultNewsMonitors
+        }
+
     suspend fun save(runtime: RuntimeState) {
         context.runtimeDataStore.edit { prefs ->
             prefs[Keys.runtimeEnabled] = runtime.runtimeEnabled
@@ -71,6 +81,12 @@ class RuntimePreferences(
         }
     }
 
+    suspend fun saveMonitors(monitors: List<NewsMonitor>) {
+        context.runtimeDataStore.edit { prefs ->
+            prefs[Keys.monitorsJson] = monitors.toJson()
+        }
+    }
+
     private object Keys {
         val runtimeEnabled = booleanPreferencesKey("runtime_enabled")
         val fetchEnabled = booleanPreferencesKey("fetch_enabled")
@@ -88,5 +104,44 @@ class RuntimePreferences(
         val monitorScanHour = longPreferencesKey("monitor_scan_hour")
         val aiDailyBudgetCents = longPreferencesKey("ai_daily_budget_cents")
         val providerKeySaved = booleanPreferencesKey("provider_key_saved")
+        val monitorsJson = stringPreferencesKey("monitors_json")
     }
 }
+
+private fun List<NewsMonitor>.toJson(): String {
+    val array = JSONArray()
+    forEach { monitor ->
+        array.put(
+            JSONObject()
+                .put("id", monitor.id)
+                .put("sentence", monitor.sentence)
+                .put("enabled", monitor.enabled)
+                .put("lastMatchStoryId", monitor.lastMatchStoryId)
+                .put("lastMatchConfidence", monitor.lastMatchConfidence)
+                .put("lastMatchExplanation", monitor.lastMatchExplanation),
+        )
+    }
+    return array.toString()
+}
+
+private fun String.toMonitors(): List<NewsMonitor> =
+    runCatching {
+        val array = JSONArray(this)
+        buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val sentence = item.optString("sentence").trim()
+                if (sentence.isBlank()) continue
+                add(
+                    NewsMonitor(
+                        id = item.optString("id").ifBlank { "monitor-${sentence.hashCode()}" },
+                        sentence = sentence,
+                        enabled = item.optBoolean("enabled", true),
+                        lastMatchStoryId = item.optString("lastMatchStoryId").ifBlank { null },
+                        lastMatchConfidence = item.optDouble("lastMatchConfidence").takeIf { !it.isNaN() },
+                        lastMatchExplanation = item.optString("lastMatchExplanation").ifBlank { null },
+                    ),
+                )
+            }
+        }
+    }.getOrDefault(defaultNewsMonitors)
