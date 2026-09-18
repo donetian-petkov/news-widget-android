@@ -54,6 +54,9 @@ class RuntimePreferences(
                 widgetThemeMode = prefs[Keys.widgetThemeMode]
                     ?.let { runCatching { WidgetThemeMode.valueOf(it) }.getOrNull() }
                     ?: WidgetThemeMode.Light,
+                widgetDensityMode = prefs[Keys.widgetDensityMode]
+                    ?.let { runCatching { WidgetDensityMode.valueOf(it) }.getOrNull() }
+                    ?: WidgetDensityMode.Comfortable,
                 widgetStackIndex = ((prefs[Keys.widgetStackIndex] ?: 0).toInt()).coerceAtLeast(0),
                 widgetPresets = prefs[Keys.widgetPresetsJson]
                     ?.let(RuntimePreferencesCodec::widgetPresetsFromJson)
@@ -108,6 +111,7 @@ class RuntimePreferences(
             prefs[Keys.widgetLayoutMode] = settings.widgetLayoutMode.name
             prefs[Keys.widgetBackgroundMode] = settings.widgetBackgroundMode.name
             prefs[Keys.widgetThemeMode] = settings.widgetThemeMode.name
+            prefs[Keys.widgetDensityMode] = settings.widgetDensityMode.name
             prefs[Keys.widgetStackIndex] = settings.widgetStackIndex.toLong().coerceAtLeast(0)
             prefs[Keys.widgetPresetsJson] = RuntimePreferencesCodec.widgetPresetsToJson(settings.widgetPresets)
         }
@@ -149,6 +153,7 @@ class RuntimePreferences(
         val widgetLayoutMode = stringPreferencesKey("widget_layout_mode")
         val widgetBackgroundMode = stringPreferencesKey("widget_background_mode")
         val widgetThemeMode = stringPreferencesKey("widget_theme_mode")
+        val widgetDensityMode = stringPreferencesKey("widget_density_mode")
         val widgetStackIndex = longPreferencesKey("widget_stack_index")
         val widgetPresetsJson = stringPreferencesKey("widget_presets_json")
         val monitorsJson = stringPreferencesKey("monitors_json")

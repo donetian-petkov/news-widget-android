@@ -214,6 +214,7 @@ object NewsRepository {
             widgetLayoutMode = settings.widgetLayoutMode,
             widgetBackgroundMode = settings.widgetBackgroundMode,
             widgetThemeMode = settings.widgetThemeMode,
+            widgetDensityMode = settings.widgetDensityMode,
             widgetStackIndex = settings.widgetStackIndex.coerceAtLeast(0),
             widgetPresets = settings.widgetPresets
                 .filter { it.name.isNotBlank() }

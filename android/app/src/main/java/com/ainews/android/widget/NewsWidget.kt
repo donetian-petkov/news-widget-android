@@ -39,11 +39,13 @@ import com.ainews.android.MainActivity
 import com.ainews.android.R
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.WidgetBackgroundMode
+import com.ainews.android.data.WidgetDensityMode
 import com.ainews.android.data.WidgetLayoutMode
 import com.ainews.android.data.WidgetThemeMode
 import com.ainews.android.network.ImageDiskCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.ui.unit.Dp
 
 class NewsWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -60,12 +62,14 @@ class NewsWidget : GlanceAppWidget() {
         provideContent {
             val state = NewsRepository.state.value
             val size = LocalSize.current
-            val storyLimit = when {
+            val metrics = widgetMetrics(state.settings.widgetDensityMode)
+            val baseStoryLimit = when {
                 size.width < 180.dp || size.height < 130.dp -> 1
                 size.height < 220.dp -> 2
                 else -> 5
             }
-            val showSummary = size.width >= 260.dp && size.height >= 180.dp
+            val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(6)
+            val showSummary = size.width >= 260.dp && size.height >= metrics.summaryHeightThreshold
             val showActions = size.width >= 220.dp && size.height >= 150.dp
             val showMetrics = size.width >= 220.dp
             val showThumbnails = size.width >= 260.dp && size.height >= 170.dp
@@ -87,7 +91,7 @@ class NewsWidget : GlanceAppWidget() {
                 modifier = GlanceModifier
                     .fillMaxSize()
                     .background(ColorProvider(palette.background))
-                    .padding(12.dp),
+                    .padding(metrics.outerPadding),
                 verticalAlignment = Alignment.Top,
                 horizontalAlignment = Alignment.Start,
             ) {
@@ -128,7 +132,7 @@ class NewsWidget : GlanceAppWidget() {
                     )
                 }
 
-                Spacer(GlanceModifier.height(7.dp))
+                Spacer(GlanceModifier.height(metrics.sectionGap))
 
                 stories.forEach { story ->
                     val isAlert = state.alertMatches.any { it.storyId == story.id }
@@ -140,7 +144,7 @@ class NewsWidget : GlanceAppWidget() {
                                 ColorProvider(if (isAlert) palette.alertCard else palette.card),
                             )
                             .cornerRadius(8.dp)
-                            .padding(8.dp),
+                            .padding(metrics.cardPadding),
                     ) {
                         if (thumbnail == null) {
                             StoryTextBlock(
@@ -158,10 +162,10 @@ class NewsWidget : GlanceAppWidget() {
                                     contentDescription = story.title,
                                     contentScale = ContentScale.Crop,
                                     modifier = GlanceModifier
-                                        .size(58.dp)
+                                        .size(metrics.thumbnailSize)
                                         .cornerRadius(6.dp),
                                 )
-                                Spacer(GlanceModifier.width(8.dp))
+                                Spacer(GlanceModifier.width(metrics.thumbnailGap))
                                 StoryTextBlock(
                                     title = story.widgetTitle(isAlert = isAlert),
                                     sourceLine = "${story.source} - ${story.topicLabels.joinToString(", ")}",
@@ -200,7 +204,7 @@ class NewsWidget : GlanceAppWidget() {
                             }
                         }
                     }
-                    Spacer(GlanceModifier.height(6.dp))
+                    Spacer(GlanceModifier.height(metrics.cardGap))
                 }
 
                 if (stackMode && allWidgetStories.size > 1 && showMetrics) {
@@ -277,6 +281,42 @@ private data class WidgetPalette(
     val body: Color,
     val muted: Color,
 )
+
+private data class WidgetMetrics(
+    val outerPadding: Dp,
+    val cardPadding: Dp,
+    val cardGap: Dp,
+    val sectionGap: Dp,
+    val thumbnailSize: Dp,
+    val thumbnailGap: Dp,
+    val summaryHeightThreshold: Dp,
+    val extraStoryCapacity: Int,
+)
+
+private fun widgetMetrics(densityMode: WidgetDensityMode): WidgetMetrics =
+    when (densityMode) {
+        WidgetDensityMode.Comfortable -> WidgetMetrics(
+            outerPadding = 12.dp,
+            cardPadding = 8.dp,
+            cardGap = 6.dp,
+            sectionGap = 7.dp,
+            thumbnailSize = 58.dp,
+            thumbnailGap = 8.dp,
+            summaryHeightThreshold = 180.dp,
+            extraStoryCapacity = 0,
+        )
+
+        WidgetDensityMode.Compact -> WidgetMetrics(
+            outerPadding = 8.dp,
+            cardPadding = 6.dp,
+            cardGap = 4.dp,
+            sectionGap = 5.dp,
+            thumbnailSize = 46.dp,
+            thumbnailGap = 6.dp,
+            summaryHeightThreshold = 260.dp,
+            extraStoryCapacity = 1,
+        )
+    }
 
 private fun widgetPalette(
     themeMode: WidgetThemeMode,
