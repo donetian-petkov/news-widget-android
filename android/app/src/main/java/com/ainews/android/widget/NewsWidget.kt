@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.Image
+import androidx.glance.ImageProvider
 import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
@@ -18,12 +20,15 @@ import androidx.glance.appwidget.updateAll
 import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
+import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
+import androidx.glance.layout.size
+import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
@@ -32,11 +37,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.ainews.android.MainActivity
 import com.ainews.android.data.NewsRepository
+import com.ainews.android.network.ImageDiskCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class NewsWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val imageDiskCache = ImageDiskCache()
+        val cachedImages = NewsRepository.state.value.prioritizedStories
+            .take(5)
+            .mapNotNull { story ->
+                val imageUrl = story.imageUrl ?: return@mapNotNull null
+                val bitmap = imageDiskCache.loadCachedBitmap(context, imageUrl) ?: return@mapNotNull null
+                story.id to bitmap
+            }
+            .toMap()
+
         provideContent {
             val state = NewsRepository.state.value
             val size = LocalSize.current
@@ -48,6 +64,7 @@ class NewsWidget : GlanceAppWidget() {
             val showSummary = size.width >= 260.dp && size.height >= 180.dp
             val showActions = size.width >= 220.dp && size.height >= 150.dp
             val showMetrics = size.width >= 220.dp
+            val showThumbnails = size.width >= 260.dp && size.height >= 170.dp
             val stories = state.prioritizedStories.take(storyLimit)
             LocalContext.current
 
@@ -97,6 +114,7 @@ class NewsWidget : GlanceAppWidget() {
 
                 stories.forEach { story ->
                     val isAlert = state.alertMatches.any { it.storyId == story.id }
+                    val thumbnail = cachedImages[story.id].takeIf { showThumbnails }
                     Column(
                         modifier = GlanceModifier
                             .fillMaxWidth()
@@ -106,25 +124,33 @@ class NewsWidget : GlanceAppWidget() {
                             .cornerRadius(8.dp)
                             .padding(8.dp),
                     ) {
-                        Text(
-                            text = story.widgetTitle(isAlert = isAlert),
-                            style = TextStyle(
-                                color = ColorProvider(if (isAlert) Color(0xFF7F1D1D) else Color(0xFF0F172A)),
-                                fontWeight = FontWeight.Bold,
-                            ),
-                            maxLines = 2,
-                        )
-                        Text(
-                            text = "${story.source} - ${story.topicLabels.joinToString(", ")}",
-                            style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
-                            maxLines = 1,
-                        )
-                        if (showSummary) {
-                            Text(
-                                text = story.summary,
-                                style = TextStyle(color = ColorProvider(Color(0xFF334155))),
-                                maxLines = 2,
+                        if (thumbnail == null) {
+                            StoryTextBlock(
+                                title = story.widgetTitle(isAlert = isAlert),
+                                sourceLine = "${story.source} - ${story.topicLabels.joinToString(", ")}",
+                                summary = story.summary,
+                                isAlert = isAlert,
+                                showSummary = showSummary,
                             )
+                        } else {
+                            Row(verticalAlignment = Alignment.Top) {
+                                Image(
+                                    provider = ImageProvider(thumbnail),
+                                    contentDescription = story.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = GlanceModifier
+                                        .size(58.dp)
+                                        .cornerRadius(6.dp),
+                                )
+                                Spacer(GlanceModifier.width(8.dp))
+                                StoryTextBlock(
+                                    title = story.widgetTitle(isAlert = isAlert),
+                                    sourceLine = "${story.source} - ${story.topicLabels.joinToString(", ")}",
+                                    summary = story.summary,
+                                    isAlert = isAlert,
+                                    showSummary = showSummary,
+                                )
+                            }
                         }
                         if (showActions) {
                             Row(horizontalAlignment = Alignment.Start) {
@@ -161,6 +187,38 @@ class NewsWidget : GlanceAppWidget() {
                     )
                 }
             }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun StoryTextBlock(
+    title: String,
+    sourceLine: String,
+    summary: String,
+    isAlert: Boolean,
+    showSummary: Boolean,
+) {
+    Column(modifier = GlanceModifier.fillMaxWidth()) {
+        Text(
+            text = title,
+            style = TextStyle(
+                color = ColorProvider(if (isAlert) Color(0xFF7F1D1D) else Color(0xFF0F172A)),
+                fontWeight = FontWeight.Bold,
+            ),
+            maxLines = 2,
+        )
+        Text(
+            text = sourceLine,
+            style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
+            maxLines = 1,
+        )
+        if (showSummary) {
+            Text(
+                text = summary,
+                style = TextStyle(color = ColorProvider(Color(0xFF334155))),
+                maxLines = 2,
+            )
         }
     }
 }

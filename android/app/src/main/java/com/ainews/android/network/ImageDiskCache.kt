@@ -14,6 +14,11 @@ class ImageDiskCache(
     private val maxAgeMillis: Long = DEFAULT_MAX_AGE_MILLIS,
     private val maxBytes: Long = DEFAULT_MAX_BYTES,
 ) {
+    fun loadCachedBitmap(context: Context, imageUrl: String): Bitmap? {
+        val file = cachedFile(context, imageUrl) ?: return null
+        return BitmapFactory.decodeFile(file.absolutePath)
+    }
+
     suspend fun loadBitmap(context: Context, imageUrl: String): Bitmap? =
         withContext(Dispatchers.IO) {
             val file = getOrFetch(context, imageUrl) ?: return@withContext null
@@ -31,9 +36,7 @@ class ImageDiskCache(
     private fun getOrFetch(context: Context, imageUrl: String): File? {
         if (!ImageCachePolicy.isSupportedRemoteUrl(imageUrl)) return null
         val target = File(cacheDir(context), ImageCachePolicy.fileNameForUrl(imageUrl))
-        if (target.exists() && ImageCachePolicy.isFresh(target.lastModified(), nowMillis(), maxAgeMillis)) {
-            return target
-        }
+        cachedFile(target)?.let { return it }
 
         val temp = File(target.parentFile, "${target.name}.tmp")
         val connection = (URL(imageUrl).openConnection() as HttpURLConnection).apply {
@@ -69,6 +72,16 @@ class ImageDiskCache(
 
     private fun cacheDir(context: Context): File =
         File(context.cacheDir, CACHE_DIR_NAME).apply { mkdirs() }
+
+    private fun cachedFile(context: Context, imageUrl: String): File? {
+        if (!ImageCachePolicy.isSupportedRemoteUrl(imageUrl)) return null
+        return cachedFile(File(cacheDir(context), ImageCachePolicy.fileNameForUrl(imageUrl)))
+    }
+
+    private fun cachedFile(target: File): File? =
+        target.takeIf {
+            it.exists() && ImageCachePolicy.isFresh(it.lastModified(), nowMillis(), maxAgeMillis)
+        }
 
     private fun nowMillis(): Long = System.currentTimeMillis()
 

@@ -8,8 +8,6 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import org.json.JSONArray
-import org.json.JSONObject
 
 private val Context.runtimeDataStore by preferencesDataStore(name = "runtime")
 
@@ -53,7 +51,7 @@ class RuntimePreferences(
     val monitorState: Flow<List<NewsMonitor>> =
         context.runtimeDataStore.data.map { prefs ->
             prefs[Keys.monitorsJson]
-                ?.toMonitors()
+                ?.let(RuntimePreferencesCodec::monitorsFromJson)
                 ?.takeIf { it.isNotEmpty() }
                 ?: defaultNewsMonitors
         }
@@ -61,7 +59,7 @@ class RuntimePreferences(
     val feedSourceState: Flow<List<FeedSource>> =
         context.runtimeDataStore.data.map { prefs ->
             prefs[Keys.feedSourcesJson]
-                ?.toFeedSources()
+                ?.let(RuntimePreferencesCodec::feedSourcesFromJson)
                 ?.takeIf { it.isNotEmpty() }
                 ?: defaultFeedSources
         }
@@ -97,13 +95,13 @@ class RuntimePreferences(
 
     suspend fun saveMonitors(monitors: List<NewsMonitor>) {
         context.runtimeDataStore.edit { prefs ->
-            prefs[Keys.monitorsJson] = monitors.monitorsToJson()
+            prefs[Keys.monitorsJson] = RuntimePreferencesCodec.monitorsToJson(monitors)
         }
     }
 
     suspend fun saveFeedSources(feedSources: List<FeedSource>) {
         context.runtimeDataStore.edit { prefs ->
-            prefs[Keys.feedSourcesJson] = feedSources.feedSourcesToJson()
+            prefs[Keys.feedSourcesJson] = RuntimePreferencesCodec.feedSourcesToJson(feedSources)
         }
     }
 
@@ -131,74 +129,3 @@ class RuntimePreferences(
         val feedSourcesJson = stringPreferencesKey("feed_sources_json")
     }
 }
-
-private fun List<NewsMonitor>.monitorsToJson(): String {
-    val array = JSONArray()
-    forEach { monitor ->
-        array.put(
-            JSONObject()
-                .put("id", monitor.id)
-                .put("sentence", monitor.sentence)
-                .put("enabled", monitor.enabled)
-                .put("lastMatchStoryId", monitor.lastMatchStoryId)
-                .put("lastMatchConfidence", monitor.lastMatchConfidence)
-                .put("lastMatchExplanation", monitor.lastMatchExplanation),
-        )
-    }
-    return array.toString()
-}
-
-private fun String.toMonitors(): List<NewsMonitor> =
-    runCatching {
-        val array = JSONArray(this)
-        buildList {
-            for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index) ?: continue
-                val sentence = item.optString("sentence").trim()
-                if (sentence.isBlank()) continue
-                add(
-                    NewsMonitor(
-                        id = item.optString("id").ifBlank { "monitor-${sentence.hashCode()}" },
-                        sentence = sentence,
-                        enabled = item.optBoolean("enabled", true),
-                        lastMatchStoryId = item.optString("lastMatchStoryId").ifBlank { null },
-                        lastMatchConfidence = item.optDouble("lastMatchConfidence").takeIf { !it.isNaN() },
-                        lastMatchExplanation = item.optString("lastMatchExplanation").ifBlank { null },
-                    ),
-                )
-            }
-        }
-    }.getOrDefault(defaultNewsMonitors)
-
-private fun List<FeedSource>.feedSourcesToJson(): String {
-    val array = JSONArray()
-    forEach { source ->
-        array.put(
-            JSONObject()
-                .put("id", source.id)
-                .put("title", source.title)
-                .put("url", source.url),
-        )
-    }
-    return array.toString()
-}
-
-private fun String.toFeedSources(): List<FeedSource> =
-    runCatching {
-        val array = JSONArray(this)
-        buildList {
-            for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index) ?: continue
-                val title = item.optString("title").trim()
-                val url = item.optString("url").trim()
-                if (title.isBlank() || url.isBlank()) continue
-                add(
-                    FeedSource(
-                        id = item.optString("id").ifBlank { "feed-${url.hashCode()}" },
-                        title = title,
-                        url = url,
-                    ),
-                )
-            }
-        }
-    }.getOrDefault(defaultFeedSources)

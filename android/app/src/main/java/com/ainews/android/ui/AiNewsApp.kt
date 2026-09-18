@@ -185,6 +185,10 @@ fun AiNewsApp() {
                     onOpenMonitors = { showMonitors = true },
                     onOpenFeeds = { showFeeds = true },
                     onDismissOnboarding = NewsRepository::dismissOnboarding,
+                    onUseLocalAi = {
+                        NewsRepository.useLocalAiProvider()
+                        scope.launch { NewsWidget().updateAll(context) }
+                    },
                     onOpenStory = NewsRepository::selectStory,
                     onHideStory = {
                         NewsRepository.hideStory(it)
@@ -213,6 +217,7 @@ private fun NewsFeed(
     onOpenMonitors: () -> Unit,
     onOpenFeeds: () -> Unit,
     onDismissOnboarding: () -> Unit,
+    onUseLocalAi: () -> Unit,
     onOpenStory: (String) -> Unit,
     onHideStory: (String) -> Unit,
     onShareStory: (NewsStory) -> Unit,
@@ -237,6 +242,7 @@ private fun NewsFeed(
             onOpenMonitors = onOpenMonitors,
             onOpenFeeds = onOpenFeeds,
             onDismissOnboarding = onDismissOnboarding,
+            onUseLocalAi = onUseLocalAi,
         )
 
         Spacer(Modifier.height(14.dp))
@@ -275,6 +281,7 @@ private fun Header(
     onOpenMonitors: () -> Unit,
     onOpenFeeds: () -> Unit,
     onDismissOnboarding: () -> Unit,
+    onUseLocalAi: () -> Unit,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -393,8 +400,10 @@ private fun Header(
         if (!state.settings.onboardingDismissed) {
             SetupChecklistCard(
                 state = state,
+                onRefresh = onRefresh,
                 onOpenSettings = onOpenSettings,
                 onOpenFeeds = onOpenFeeds,
+                onUseLocalAi = onUseLocalAi,
                 onDismiss = onDismissOnboarding,
             )
         }
@@ -440,11 +449,14 @@ private fun Header(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SetupChecklistCard(
     state: NewsUiState,
+    onRefresh: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenFeeds: () -> Unit,
+    onUseLocalAi: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val items = setupChecklistItems(state)
@@ -486,12 +498,25 @@ private fun SetupChecklistCard(
                     color = if (item.complete) Color(0xFF166534) else Color(0xFF334155),
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onOpenFeeds) {
-                    Text("Feeds")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (items.any { it.id == "stories" && !it.complete }) {
+                    Button(onClick = onRefresh, enabled = state.runtime.runtimeEnabled) {
+                        Text("Refresh now")
+                    }
+                }
+                if (items.any { it.id == "ai" && !it.complete }) {
+                    OutlinedButton(onClick = onUseLocalAi) {
+                        Text("Use local AI")
+                    }
                 }
                 OutlinedButton(onClick = onOpenSettings) {
                     Text("Settings")
+                }
+                OutlinedButton(onClick = onOpenFeeds) {
+                    Text("Feeds")
                 }
             }
         }

@@ -244,6 +244,10 @@ object NewsRepository {
         }
     }
 
+    fun useLocalAiProvider() {
+        updateSettings(_state.value.settings.copy(aiProvider = AiProvider.LocalOnly))
+    }
+
     fun addMonitor(sentence: String) {
         val cleanSentence = sentence.trim()
         if (cleanSentence.isBlank()) return
@@ -473,10 +477,6 @@ object NewsRepository {
             )
         }
 
-        val previousStories = _state.value.stories
-        val previousIds = previousStories.map { it.id }.toSet()
-        val hiddenById = previousStories.associateBy({ it.id }, { it.isHidden to it.hiddenAt })
-
         val settings = _state.value.settings
         val fetchedStories = withContext(Dispatchers.IO) {
             runCatching {
@@ -503,16 +503,8 @@ object NewsRepository {
             return
         }
 
-        val fetchedIds = fetchedStories.map { it.id }.toSet()
-        val sameStorySet = fetchedIds == previousIds
-        val storiesToStore = fetchedStories.map { story ->
-            val hiddenState = hiddenById[story.id]
-            story.copy(
-                isNew = !sameStorySet && story.id !in previousIds,
-                isHidden = hiddenState?.first ?: false,
-                hiddenAt = hiddenState?.second,
-            )
-        }
+        val refreshResult = StoryRefreshMerger.merge(_state.value.stories, fetchedStories)
+        val storiesToStore = refreshResult.stories
 
         _state.update { current ->
             val runtime = current.runtime.copy(
@@ -523,17 +515,13 @@ object NewsRepository {
             current.copy(
                 runtime = runtime,
                 stories = storiesToStore,
-                message = if (sameStorySet) {
-                    "Feed refreshed - no new stories"
-                } else {
-                    "Feed refreshed - ${storiesToStore.count { it.isNew }} new"
-                },
+                message = refreshResult.message,
             )
         }
         withContext(Dispatchers.IO) {
             storyDao.upsertStories(storiesToStore.map { it.toEntity() })
             imageDiskCache.prefetch(appContext, storiesToStore.mapNotNull { it.imageUrl })
-            if (sameStorySet) {
+            if (refreshResult.sameStorySet) {
                 storyDao.clearNewMarkers()
             }
         }
