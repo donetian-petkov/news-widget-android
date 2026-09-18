@@ -895,7 +895,15 @@ object NewsRepository {
     /** Builds a short digest of the current top stories and posts it as a notification. */
     fun buildDigestNow(): DigestEntry? {
         val current = _state.value
-        val stories = current.prioritizedStories.take(8)
+        val alertStoryIds = current.alertMatches.map { it.storyId }.toSet()
+        val stories = current.stories
+            .filterNot { it.isHidden }
+            .sortedWith(
+                compareByDescending<NewsStory> { it.isPinned }
+                    .thenByDescending { it.id in alertStoryIds }
+                    .thenByDescending { it.publishedAt },
+            )
+            .take(8)
         if (stories.isEmpty()) {
             _state.update { it.copy(message = "No stories to put in a digest") }
             return null

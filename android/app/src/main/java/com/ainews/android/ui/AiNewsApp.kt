@@ -10,6 +10,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,16 +30,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -91,6 +98,7 @@ import com.ainews.android.data.WidgetPreset
 import com.ainews.android.data.WidgetThemeMode
 import com.ainews.android.data.WidgetTypographyMode
 import com.ainews.android.data.aiBudgetText
+import com.ainews.android.data.aiConfigured
 import com.ainews.android.data.effectiveFeedSourceIds
 import com.ainews.android.data.effectiveWidgetFeedSourceIds
 import com.ainews.android.data.setupChecklistItems
@@ -157,7 +165,10 @@ fun AiNewsApp() {
                 StoryDetail(
                     story = selectedStory,
                     section = state.selectedStorySection,
-                    aiReady = state.runtime.runtimeEnabled && state.runtime.aiEnabled,
+                    aiConfigured = state.settings.aiConfigured,
+                    aiReady = state.settings.aiConfigured &&
+                        state.runtime.runtimeEnabled &&
+                        state.runtime.aiEnabled,
                     onBack = { NewsRepository.selectStory(null) },
                     onHide = {
                         NewsRepository.hideStory(selectedStory.id)
@@ -408,7 +419,13 @@ private fun NewsFeed(
     onToggleSaveStory: (String) -> Unit,
     onShareStory: (NewsStory) -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val storyCount = state.prioritizedStories.size
+
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(
+        state = listState,
         verticalArrangement = Arrangement.spacedBy(7.dp),
         modifier = Modifier
             .fillMaxSize()
@@ -454,9 +471,42 @@ private fun NewsFeed(
             }
         }
     }
+
+        if (storyCount > 4) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 20.dp),
+            ) {
+                SmallFloatingActionButton(
+                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_arrow_up),
+                        contentDescription = "Back to top",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                SmallFloatingActionButton(
+                    onClick = { scope.launch { listState.animateScrollToItem(storyCount) } },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_arrow_down),
+                        contentDescription = "Jump to the end",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        }
+    }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun Header(
     state: NewsUiState,
@@ -473,117 +523,212 @@ private fun Header(
     onDismissOnboarding: () -> Unit,
     onUseLocalAi: () -> Unit,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val hiddenCount = state.stories.count { it.isHidden }
+    val aiConfigured = state.settings.aiConfigured
+    val aiReady = aiConfigured && state.runtime.runtimeEnabled && state.runtime.aiEnabled
+
     Column(
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(
                     text = state.feedTitle,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = state.runtime.statusText,
+                    text = if (state.settings.aiConfigured) {
+                        "${state.runtime.statusText} - ${state.runtime.aiBudgetText}"
+                    } else {
+                        state.runtime.statusText
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
-            StatusDot(active = state.runtime.runtimeEnabled)
+            IconButton(onClick = onPower) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_power),
+                    contentDescription = if (state.runtime.runtimeEnabled) "Turn runtime off" else "Turn runtime on",
+                    tint = if (state.runtime.runtimeEnabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            IconButton(onClick = onRefresh, enabled = state.runtime.runtimeEnabled) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_refresh),
+                    contentDescription = "Refresh",
+                    tint = if (state.runtime.runtimeEnabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_more_vert),
+                    contentDescription = "More",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
         }
 
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            HeaderActionButton(
-                text = if (state.runtime.runtimeEnabled) "Off" else "On",
-                iconRes = R.drawable.ic_power,
-                selected = state.runtime.runtimeEnabled,
-                onClick = onPower,
-            )
-            HeaderIconButton(
-                iconRes = R.drawable.ic_refresh,
-                contentDescription = "Refresh",
-                enabled = state.runtime.runtimeEnabled,
-                onClick = onRefresh,
-            )
-            HeaderActionButton(
-                text = if (state.runtime.aiEnabled) "AI" else "AI off",
-                selected = state.runtime.aiEnabled,
-                onClick = onAi,
-            )
-            HeaderIconButton(
-                iconRes = R.drawable.ic_settings,
-                contentDescription = "Settings",
-                onClick = { onOpenScreen(AppScreen.Settings) },
-            )
-            HeaderIconButton(
-                iconRes = R.drawable.ic_monitor,
-                contentDescription = "Monitors",
-                onClick = { onOpenScreen(AppScreen.Monitors) },
-            )
-            HeaderIconButton(
-                iconRes = R.drawable.ic_feeds,
-                contentDescription = "Feeds",
-                onClick = { onOpenScreen(AppScreen.Feeds) },
-            )
-            HeaderActionButton(text = "Scan", onClick = onScanMonitors)
-            HeaderActionButton(
-                text = "Enrich",
-                enabled = state.runtime.runtimeEnabled && state.runtime.aiEnabled,
-                onClick = onEnrich,
-            )
+        if (menuOpen) {
+            ModalBottomSheet(onDismissRequest = { menuOpen = false }) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 28.dp),
+                ) {
+                    SheetSection("Reading")
+                    SheetItem("Library", "${state.savedStories.size} saved") {
+                        menuOpen = false
+                        onOpenScreen(AppScreen.Library)
+                    }
+                    SheetItem("Filtered feed", "${state.settings.keywords.size} keywords") {
+                        menuOpen = false
+                        onOpenScreen(AppScreen.Keywords)
+                    }
+                    SheetItem("Hidden stories", "$hiddenCount hidden") {
+                        menuOpen = false
+                        onOpenScreen(AppScreen.Hidden)
+                    }
+                    if (hiddenCount > 0) {
+                        SheetItem("Restore all hidden") {
+                            menuOpen = false
+                            onRestoreHidden()
+                        }
+                    }
+
+                    SheetSection("Feeds")
+                    SheetItem("Feeds", "${state.feedSources.size} sources") {
+                        menuOpen = false
+                        onOpenScreen(AppScreen.Feeds)
+                    }
+                    SheetItem("Source health") {
+                        menuOpen = false
+                        onOpenScreen(AppScreen.Sources)
+                    }
+                    SheetItem("Fetch history") {
+                        menuOpen = false
+                        onOpenScreen(AppScreen.History)
+                    }
+
+                    SheetSection("Alerts and automation")
+                    SheetItem("Monitors", "${state.monitors.size} sentences") {
+                        menuOpen = false
+                        onOpenScreen(AppScreen.Monitors)
+                    }
+                    SheetItem("Scan monitors now") {
+                        menuOpen = false
+                        onScanMonitors()
+                    }
+                    SheetItem("Digests", "${state.digests.size} saved") {
+                        menuOpen = false
+                        onOpenScreen(AppScreen.Digests)
+                    }
+                    SheetItem("Schedules", "${state.schedules.count { it.enabled }} running") {
+                        menuOpen = false
+                        onOpenScreen(AppScreen.Schedules)
+                    }
+
+                    SheetSection("AI")
+                    if (aiConfigured) {
+                        SheetItem(
+                            title = if (state.runtime.aiEnabled) "Pause AI" else "Resume AI",
+                        ) {
+                            menuOpen = false
+                            onAi()
+                        }
+                        SheetItem(
+                            title = "Fill missing AI",
+                            subtitle = "${state.pendingAiCount} stories waiting",
+                            enabled = aiReady,
+                        ) {
+                            menuOpen = false
+                            onEnrich()
+                        }
+                        SheetItem("AI usage", "${state.usageRecords.size} requests") {
+                            menuOpen = false
+                            onOpenScreen(AppScreen.Usage)
+                        }
+                    } else {
+                        SheetItem("Set up AI", "No provider configured yet") {
+                            menuOpen = false
+                            onOpenScreen(AppScreen.Settings)
+                        }
+                    }
+
+                    SheetSection("Runtime")
+                    SheetItem(
+                        title = "Power off after 1 hour",
+                        enabled = state.runtime.runtimeEnabled,
+                    ) {
+                        menuOpen = false
+                        onSetTimeout(1)
+                    }
+                    SheetItem(
+                        title = "Power off after 4 hours",
+                        enabled = state.runtime.runtimeEnabled,
+                    ) {
+                        menuOpen = false
+                        onSetTimeout(4)
+                    }
+                    if (state.runtime.autoPowerOffAt != null) {
+                        SheetItem("Clear auto power-off") {
+                            menuOpen = false
+                            onSetTimeout(null)
+                        }
+                    }
+                    SheetItem("Settings") {
+                        menuOpen = false
+                        onOpenScreen(AppScreen.Settings)
+                    }
+                }
+            }
         }
 
-        FlowRow(
+        // One scrolling row per filter axis: the wrapped chip grid pushed the news off screen.
+        LazyRow(
             horizontalArrangement = Arrangement.spacedBy(7.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            HeaderActionButton(
-                text = "Saved ${state.savedStories.size}",
-                onClick = { onOpenScreen(AppScreen.Library) },
-            )
-            HeaderActionButton(
-                text = "Keywords ${state.settings.keywords.size}",
-                onClick = { onOpenScreen(AppScreen.Keywords) },
-            )
-            HeaderActionButton(text = "Sources", onClick = { onOpenScreen(AppScreen.Sources) })
-            HeaderActionButton(text = "History", onClick = { onOpenScreen(AppScreen.History) })
-            HeaderActionButton(text = "AI usage", onClick = { onOpenScreen(AppScreen.Usage) })
-            HeaderActionButton(text = "Digests", onClick = { onOpenScreen(AppScreen.Digests) })
-            HeaderActionButton(text = "Schedules", onClick = { onOpenScreen(AppScreen.Schedules) })
-        }
-
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            HeaderActionButton(
-                text = "All stories",
-                selected = state.feedViewMode == FeedViewMode.All,
-                onClick = { onSelectViewMode(FeedViewMode.All) },
-            )
-            HeaderActionButton(
-                text = "Filtered ${state.keywordMatches.size}",
-                selected = state.feedViewMode == FeedViewMode.Filtered,
-                onClick = { onSelectViewMode(FeedViewMode.Filtered) },
-            )
-            HeaderActionButton(
-                text = "Saved",
-                selected = state.feedViewMode == FeedViewMode.Saved,
-                onClick = { onSelectViewMode(FeedViewMode.Saved) },
-            )
+            item {
+                HeaderActionButton(
+                    text = "All stories",
+                    selected = state.feedViewMode == FeedViewMode.All,
+                    onClick = { onSelectViewMode(FeedViewMode.All) },
+                )
+            }
+            item {
+                HeaderActionButton(
+                    text = "Filtered ${state.keywordMatches.size}",
+                    selected = state.feedViewMode == FeedViewMode.Filtered,
+                    onClick = { onSelectViewMode(FeedViewMode.Filtered) },
+                )
+            }
+            item {
+                HeaderActionButton(
+                    text = "Saved ${state.savedStories.size}",
+                    selected = state.feedViewMode == FeedViewMode.Saved,
+                    onClick = { onSelectViewMode(FeedViewMode.Saved) },
+                )
+            }
         }
 
         if (state.feedViewMode == FeedViewMode.Filtered && state.settings.keywords.isEmpty()) {
@@ -594,41 +739,18 @@ private fun Header(
             )
         }
 
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(
-                text = if (state.runtime.autoPowerOffAt == null) {
-                    "Auto power-off not set"
-                } else {
-                    "Auto power-off armed"
-                },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            HeaderActionButton(text = "1h", enabled = state.runtime.runtimeEnabled, onClick = { onSetTimeout(1) })
-            HeaderActionButton(text = "4h", enabled = state.runtime.runtimeEnabled, onClick = { onSetTimeout(4) })
-            HeaderActionButton(text = "Clear", onClick = { onSetTimeout(null) })
-        }
-
-        Text(
-            text = "${state.runtime.aiBudgetText} / ${state.settings.aiDailyBudgetCents}c budget",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            TopicChip(
-                text = "All",
-                selected = state.selectedTopic == null,
-                onClick = { onSelectTopic(null) },
-            )
-            state.availableTopics.forEach { topic ->
+            item {
+                TopicChip(
+                    text = "All",
+                    selected = state.selectedTopic == null,
+                    onClick = { onSelectTopic(null) },
+                )
+            }
+            items(state.availableTopics, key = { it }) { topic ->
                 TopicChip(
                     text = topic,
                     selected = state.selectedTopic == topic,
@@ -656,18 +778,6 @@ private fun Header(
             )
         }
 
-        val hiddenCount = state.stories.count { it.isHidden }
-        if (hiddenCount > 0) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onOpenScreen(AppScreen.Hidden) }) {
-                    Text("Hidden $hiddenCount")
-                }
-                TextButton(onClick = onRestoreHidden) {
-                    Text("Restore all")
-                }
-            }
-        }
-
         state.monitors.filter { it.lastMatchStoryId != null }.forEach { monitor ->
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFE0F2FE)),
@@ -693,6 +803,49 @@ private fun Header(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SheetSection(title: String) {
+    Text(
+        text = title.uppercase(Locale.getDefault()),
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 18.dp, bottom = 6.dp),
+    )
+}
+
+@Composable
+private fun SheetItem(
+    title: String,
+    subtitle: String? = null,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (enabled) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+        subtitle?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -1854,6 +2007,7 @@ private fun StoryCard(
 private fun StoryDetail(
     story: NewsStory,
     section: StoryDetailSection,
+    aiConfigured: Boolean,
     aiReady: Boolean,
     onBack: () -> Unit,
     onHide: () -> Unit,
@@ -1891,7 +2045,8 @@ private fun StoryDetail(
             item { DetailBlock(block.title, block.body, highlighted = block.section == section && section != StoryDetailSection.Story) }
         }
         story.imageUrl?.let { item { StoryImage(imageUrl = it) } }
-        item {
+        if (aiConfigured) {
+            item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -1928,6 +2083,7 @@ private fun StoryDetail(
                         }
                     }
                 }
+            }
             }
         }
         item {

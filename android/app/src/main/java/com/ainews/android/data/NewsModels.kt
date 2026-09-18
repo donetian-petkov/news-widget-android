@@ -203,6 +203,10 @@ data class RuntimeState(
         }
 }
 
+/** AI is only usable once a provider key is stored, or the user deliberately picked local mode. */
+val RuntimeSettings.aiConfigured: Boolean
+    get() = providerKeySaved || aiProvider == AiProvider.LocalOnly
+
 val RuntimeState.aiBudgetText: String
     get() = "AI spent ${aiBudgetSpentCents}c today"
 

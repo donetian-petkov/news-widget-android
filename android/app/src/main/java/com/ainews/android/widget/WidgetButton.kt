@@ -9,6 +9,7 @@ import androidx.glance.ImageProvider
 import androidx.glance.action.Action
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.cornerRadius
+import androidx.glance.ColorFilter
 import androidx.glance.background
 import androidx.glance.layout.Box
 import androidx.glance.layout.padding
@@ -17,20 +18,28 @@ import androidx.glance.unit.ColorProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.ainews.android.MainActivity
+import com.ainews.android.R
 
 @androidx.compose.runtime.Composable
-fun WidgetIconButton(iconRes: Int, contentDescription: String, action: Action) {
+fun WidgetIconButton(
+    iconRes: Int,
+    contentDescription: String,
+    action: Action,
+    backgroundRes: Int = R.drawable.widget_button_light,
+    tint: Color? = null,
+) {
     Box(
         modifier = GlanceModifier
             .padding(end = 6.dp, bottom = 4.dp)
-            .background(ColorProvider(Color(0xFFEDE9FE)))
-            .cornerRadius(10.dp)
+            .background(ImageProvider(backgroundRes))
+            .cornerRadius(12.dp)
             .clickable(action)
-            .padding(6.dp),
+            .padding(7.dp),
     ) {
         Image(
             provider = ImageProvider(iconRes),
             contentDescription = contentDescription,
+            colorFilter = tint?.let { ColorFilter.tint(ColorProvider(it)) },
             modifier = GlanceModifier.size(18.dp),
         )
     }

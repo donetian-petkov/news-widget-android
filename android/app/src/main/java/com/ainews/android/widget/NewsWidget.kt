@@ -18,8 +18,11 @@ import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.lazy.LazyColumn
+import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
@@ -70,6 +73,12 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 class NewsWidget : GlanceAppWidget() {
+    /**
+     * Without this, Glance reports the widget's declared minimum size instead of the size it
+     * actually has on the home screen, so a large widget would still draw a single story.
+     */
+    override val sizeMode: SizeMode = SizeMode.Exact
+
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val imageDiskCache = ImageDiskCache()
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
@@ -139,6 +148,9 @@ class NewsWidget : GlanceAppWidget() {
                 themeMode = settings.widgetThemeMode,
                 backgroundMode = settings.widgetBackgroundMode,
             )
+            val darkTheme = settings.widgetThemeMode == WidgetThemeMode.Dark
+            val buttonBackground = if (darkTheme) R.drawable.widget_button_dark else R.drawable.widget_button_light
+            val cardBackground = if (darkTheme) R.drawable.widget_card_dark else R.drawable.widget_card_light
             LocalContext.current
 
             Column(
@@ -149,56 +161,65 @@ class NewsWidget : GlanceAppWidget() {
                 verticalAlignment = Alignment.Top,
                 horizontalAlignment = Alignment.Start,
             ) {
-                Text(
-                    text = widgetFeedTitle,
-                    style = TextStyle(
-                        color = ColorProvider(palette.header),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = type.header,
-                    ),
-                    maxLines = 1,
-                )
-
-                Row(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    val healthy = state.runtime.runtimeEnabled && state.runtime.lastFetchStatus != FetchStatus.Failed
-                    StatusDot(
-                        healthy = healthy,
-                        palette = palette,
-                    )
-                    if (showStatusText) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = GlanceModifier.defaultWeight()) {
                         Text(
-                            text = compactStatusText(
-                                runtimeEnabled = state.runtime.runtimeEnabled,
-                                fetchEnabled = state.runtime.fetchEnabled,
-                                status = state.runtime.lastFetchStatus,
-                            ),
+                            text = widgetFeedTitle,
                             style = TextStyle(
-                                color = ColorProvider(if (healthy) palette.statusText else palette.warningText),
+                                color = ColorProvider(palette.header),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = type.meta,
+                                fontSize = type.header,
                             ),
                             maxLines = 1,
                         )
-                        Spacer(GlanceModifier.width(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val healthy = state.runtime.runtimeEnabled &&
+                                state.runtime.lastFetchStatus != FetchStatus.Failed
+                            StatusDot(healthy = healthy, palette = palette)
+                            Text(
+                                text = widgetMetaLine(
+                                    storyCount = allWidgetStories.size,
+                                    layoutMode = settings.widgetLayoutMode,
+                                    runtimeEnabled = state.runtime.runtimeEnabled,
+                                    fetchEnabled = state.runtime.fetchEnabled,
+                                    status = state.runtime.lastFetchStatus,
+                                    showClock = showStatusText,
+                                ),
+                                style = TextStyle(
+                                    color = ColorProvider(if (healthy) palette.muted else palette.warningText),
+                                    fontSize = type.meta,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
                     }
+
                     WidgetIconButton(
                         iconRes = R.drawable.ic_power,
                         contentDescription = if (state.runtime.runtimeEnabled) "Power off" else "Power on",
                         action = actionRunCallback<ToggleRuntimeAction>(),
+                        backgroundRes = buttonBackground,
+                        tint = if (state.runtime.runtimeEnabled) palette.statusText else palette.warningText,
                     )
                     WidgetIconButton(
                         iconRes = R.drawable.ic_refresh,
                         contentDescription = "Refresh",
                         action = actionRunCallback<RefreshAction>(),
+                        backgroundRes = buttonBackground,
+                        tint = if (state.runtime.lastFetchStatus == FetchStatus.Fetching) {
+                            palette.statusText
+                        } else {
+                            palette.header
+                        },
                     )
                     WidgetIconButton(
                         iconRes = if (stackMode) R.drawable.ic_view_column else R.drawable.ic_view_stack,
                         contentDescription = if (stackMode) "Show column mode" else "Show stack mode",
                         action = actionRunCallback<ToggleWidgetLayoutAction>(),
+                        backgroundRes = buttonBackground,
+                        tint = palette.header,
                     )
-                    if (!stackMode && size.width >= 260.dp) {
+                    if (!stackMode && size.width >= 300.dp) {
                         WidgetIconButton(
                             iconRes = if (preferredStoryCount >= 10) {
                                 R.drawable.ic_collapse_less
@@ -211,158 +232,48 @@ class NewsWidget : GlanceAppWidget() {
                                 "Show 10 stories"
                             },
                             action = actionRunCallback<ToggleWidgetStoryCountAction>(),
+                            backgroundRes = buttonBackground,
+                            tint = palette.header,
                         )
                     }
                 }
 
-                Text(
-                    text = widgetSummaryText(allWidgetStories.size, settings.widgetLayoutMode, preferredStoryCount),
-                    style = TextStyle(
-                        color = ColorProvider(palette.muted),
-                        fontSize = type.meta,
-                    ),
-                    maxLines = 1,
-                )
-
                 Spacer(GlanceModifier.height(metrics.sectionGap))
 
-                var previousSource: String? = null
-                stories.forEach { story ->
-                    val isAlert = state.alertMatches.any { it.storyId == story.id }
-                    val thumbnail = cachedImages[story.id].takeIf { stackMode && size.width >= 260.dp && size.height >= 170.dp }
-                    if (!stackMode && previousSource != story.source) {
-                        FeedDivider(
-                            feedName = story.source,
+                val storyRows = buildList {
+                    var previousSource: String? = null
+                    stories.forEach { story ->
+                        val showDivider = !stackMode && previousSource != story.source
+                        if (showDivider) {
+                            previousSource = story.source
+                        }
+                        add(story to showDivider)
+                    }
+                }
+
+                // A LazyColumn keeps every story on screen: a plain Column is capped at ten
+                // children by the remote-views translation, which silently dropped later stories.
+                LazyColumn(modifier = GlanceModifier.defaultWeight()) {
+                    items(storyRows.size) { index ->
+                        val (story, showDivider) = storyRows[index]
+                        WidgetStoryRow(
+                            story = story,
+                            showDivider = showDivider,
+                            isAlert = state.alertMatches.any { it.storyId == story.id },
+                            thumbnail = cachedImages[story.id]
+                                .takeIf { size.width >= 220.dp && size.height >= 150.dp },
+                            showActions = showActions && stackMode,
+                            showSummary = stackMode &&
+                                size.width >= 260.dp &&
+                                size.height >= metrics.summaryHeightThreshold,
+                            showExtraActions = size.width >= 300.dp,
+                            buttonBackground = buttonBackground,
+                            cardBackground = cardBackground,
                             palette = palette,
+                            metrics = metrics,
                             type = type,
                         )
-                        previousSource = story.source
                     }
-                    Column(
-                        modifier = GlanceModifier
-                            .fillMaxWidth()
-                            .background(
-                                ColorProvider(if (isAlert) palette.alertCard else palette.card),
-                            )
-                            .cornerRadius(8.dp)
-                            .clickable(
-                                actionRunCallback<OpenStoryAction>(
-                                    actionParametersOf(storyIdKey to story.id),
-                                ),
-                            )
-                            .padding(metrics.cardPadding),
-                    ) {
-                        if (thumbnail == null) {
-                            StoryTextBlock(
-                                title = story.widgetTitle(isAlert = isAlert),
-                                sourceLine = story.widgetSourceLine(),
-                                summary = story.widgetSummary(),
-                                isAlert = isAlert,
-                                showSummary = stackMode && size.width >= 260.dp && size.height >= metrics.summaryHeightThreshold,
-                                palette = palette,
-                                type = type,
-                            )
-                        } else {
-                            Row(verticalAlignment = Alignment.Top) {
-                                Image(
-                                    provider = ImageProvider(thumbnail),
-                                    contentDescription = story.title,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = GlanceModifier
-                                        .size(metrics.thumbnailSize)
-                                        .cornerRadius(6.dp),
-                                )
-                                Spacer(GlanceModifier.width(metrics.thumbnailGap))
-                                StoryTextBlock(
-                                    title = story.widgetTitle(isAlert = isAlert),
-                                    sourceLine = story.widgetSourceLine(),
-                                    summary = story.widgetSummary(),
-                                    isAlert = isAlert,
-                                    showSummary = true,
-                                    palette = palette,
-                                    type = type,
-                                )
-                            }
-                        }
-                        if (showActions && stackMode) {
-                            Row(horizontalAlignment = Alignment.Start) {
-                                WidgetIconButton(
-                                    iconRes = R.drawable.ic_open,
-                                    contentDescription = "Open source",
-                                    action = actionRunCallback<OpenStoryAction>(
-                                        actionParametersOf(storyIdKey to story.id),
-                                    ),
-                                )
-                                WidgetIconButton(
-                                    iconRes = R.drawable.ic_pin,
-                                    contentDescription = if (story.isPinned) "Unpin story" else "Pin story",
-                                    action = actionRunCallback<TogglePinStoryAction>(
-                                        actionParametersOf(storyIdKey to story.id),
-                                    ),
-                                )
-                                WidgetIconButton(
-                                    iconRes = R.drawable.ic_hide,
-                                    contentDescription = "Hide story",
-                                    action = actionRunCallback<HideStoryAction>(
-                                        actionParametersOf(storyIdKey to story.id),
-                                    ),
-                                )
-                                if (size.width >= 300.dp) {
-                                    WidgetIconButton(
-                                        iconRes = R.drawable.ic_copy,
-                                        contentDescription = "Copy link",
-                                        action = actionRunCallback<CopyStoryLinkAction>(
-                                            actionParametersOf(storyIdKey to story.id),
-                                        ),
-                                    )
-                                    WidgetIconButton(
-                                        iconRes = R.drawable.ic_share,
-                                        contentDescription = "Share story",
-                                        action = actionRunCallback<ShareStoryAction>(
-                                            actionParametersOf(storyIdKey to story.id),
-                                        ),
-                                    )
-                                }
-                            }
-                            Row(horizontalAlignment = Alignment.Start) {
-                                WidgetIconButton(
-                                    iconRes = R.drawable.ic_summary,
-                                    contentDescription = "Open summary",
-                                    action = actionRunCallback<OpenStorySectionAction>(
-                                        actionParametersOf(
-                                            storyIdKey to story.id,
-                                            storySectionKey to StoryDetailSection.Summary.name,
-                                        ),
-                                    ),
-                                )
-                                if (!story.research.isNullOrBlank()) {
-                                    WidgetIconButton(
-                                        iconRes = R.drawable.ic_research,
-                                        contentDescription = "Open research",
-                                        action = actionRunCallback<OpenStorySectionAction>(
-                                            actionParametersOf(
-                                                storyIdKey to story.id,
-                                                storySectionKey to StoryDetailSection.Research.name,
-                                            ),
-                                        ),
-                                    )
-                                }
-                                if (!story.translation.isNullOrBlank()) {
-                                    WidgetIconButton(
-                                        iconRes = R.drawable.ic_translation,
-                                        contentDescription = "Open translation",
-                                        action = actionRunCallback<OpenStorySectionAction>(
-                                            actionParametersOf(
-                                                storyIdKey to story.id,
-                                                storySectionKey to StoryDetailSection.Translation.name,
-                                            ),
-                                        ),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Spacer(GlanceModifier.height(metrics.cardGap))
                 }
 
                 if (stackMode && allWidgetStories.size > 1) {
@@ -371,6 +282,8 @@ class NewsWidget : GlanceAppWidget() {
                             iconRes = R.drawable.ic_arrow_up,
                             contentDescription = "Previous story",
                             action = actionRunCallback<PreviousStackStoryAction>(),
+                            backgroundRes = buttonBackground,
+                            tint = palette.header,
                         )
                         Text(
                             text = "${stackIndex + 1}/${allWidgetStories.size}",
@@ -384,6 +297,8 @@ class NewsWidget : GlanceAppWidget() {
                             iconRes = R.drawable.ic_arrow_down,
                             contentDescription = "Next story",
                             action = actionRunCallback<NextStackStoryAction>(),
+                            backgroundRes = buttonBackground,
+                            tint = palette.header,
                         )
                     }
                 }
@@ -405,6 +320,173 @@ class NewsWidget : GlanceAppWidget() {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
         WidgetInstancePreferences(context).clear(appWidgetId)
         super.onDelete(context, glanceId)
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun WidgetStoryRow(
+    story: NewsStory,
+    showDivider: Boolean,
+    isAlert: Boolean,
+    thumbnail: android.graphics.Bitmap?,
+    showActions: Boolean,
+    showSummary: Boolean,
+    showExtraActions: Boolean,
+    buttonBackground: Int,
+    cardBackground: Int,
+    palette: WidgetPalette,
+    metrics: WidgetMetrics,
+    type: WidgetTypography,
+) {
+    Column(modifier = GlanceModifier.fillMaxWidth()) {
+        if (showDivider) {
+            FeedDivider(
+                feedName = story.source,
+                palette = palette,
+                type = type,
+            )
+        }
+        Column(
+            modifier = GlanceModifier
+                .fillMaxWidth()
+                .then(
+                    if (isAlert) {
+                        GlanceModifier.background(ColorProvider(palette.alertCard))
+                    } else {
+                        GlanceModifier.background(ImageProvider(cardBackground))
+                    },
+                )
+                .cornerRadius(12.dp)
+                .clickable(
+                    actionRunCallback<OpenStoryAction>(
+                        actionParametersOf(storyIdKey to story.id),
+                    ),
+                )
+                .padding(metrics.cardPadding),
+        ) {
+            if (thumbnail == null) {
+                StoryTextBlock(
+                    story = story,
+                    isAlert = isAlert,
+                    showSummary = showSummary,
+                    palette = palette,
+                    type = type,
+                )
+            } else {
+                Row(verticalAlignment = Alignment.Top) {
+                    Image(
+                        provider = ImageProvider(thumbnail),
+                        contentDescription = story.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = GlanceModifier
+                            .size(metrics.thumbnailSize)
+                            .cornerRadius(6.dp),
+                    )
+                    Spacer(GlanceModifier.width(metrics.thumbnailGap))
+                    StoryTextBlock(
+                        story = story,
+                        isAlert = isAlert,
+                        showSummary = showSummary,
+                        palette = palette,
+                        type = type,
+                    )
+                }
+            }
+            if (showActions) {
+                Row(horizontalAlignment = Alignment.Start) {
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_open,
+                        contentDescription = "Open source",
+                        action = actionRunCallback<OpenStoryAction>(
+                            actionParametersOf(storyIdKey to story.id),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = palette.header,
+                    )
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_pin,
+                        contentDescription = if (story.isPinned) "Unpin story" else "Pin story",
+                        action = actionRunCallback<TogglePinStoryAction>(
+                            actionParametersOf(storyIdKey to story.id),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = if ("TogglePinStoryAction" == "TogglePinStoryAction" && story.isPinned) palette.pinText else palette.header,
+                    )
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_hide,
+                        contentDescription = "Hide story",
+                        action = actionRunCallback<HideStoryAction>(
+                            actionParametersOf(storyIdKey to story.id),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = if ("HideStoryAction" == "TogglePinStoryAction" && story.isPinned) palette.pinText else palette.header,
+                    )
+                    if (showExtraActions) {
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_copy,
+                            contentDescription = "Copy link",
+                            action = actionRunCallback<CopyStoryLinkAction>(
+                                actionParametersOf(storyIdKey to story.id),
+                            ),
+                            backgroundRes = buttonBackground,
+                            tint = palette.header,
+                        )
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_share,
+                            contentDescription = "Share story",
+                            action = actionRunCallback<ShareStoryAction>(
+                                actionParametersOf(storyIdKey to story.id),
+                            ),
+                            backgroundRes = buttonBackground,
+                            tint = palette.header,
+                        )
+                    }
+                }
+                Row(horizontalAlignment = Alignment.Start) {
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_summary,
+                        contentDescription = "Open summary",
+                        action = actionRunCallback<OpenStorySectionAction>(
+                            actionParametersOf(
+                                storyIdKey to story.id,
+                                storySectionKey to StoryDetailSection.Summary.name,
+                            ),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = palette.header,
+                    )
+                    if (!story.research.isNullOrBlank()) {
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_research,
+                            contentDescription = "Open research",
+                            action = actionRunCallback<OpenStorySectionAction>(
+                                actionParametersOf(
+                                    storyIdKey to story.id,
+                                    storySectionKey to StoryDetailSection.Research.name,
+                                ),
+                            ),
+                            backgroundRes = buttonBackground,
+                            tint = palette.header,
+                        )
+                    }
+                    if (!story.translation.isNullOrBlank()) {
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_translation,
+                            contentDescription = "Open translation",
+                            action = actionRunCallback<OpenStorySectionAction>(
+                                actionParametersOf(
+                                    storyIdKey to story.id,
+                                    storySectionKey to StoryDetailSection.Translation.name,
+                                ),
+                            ),
+                            backgroundRes = buttonBackground,
+                            tint = palette.header,
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(GlanceModifier.height(metrics.cardGap))
     }
 }
 
@@ -442,9 +524,7 @@ private fun FeedDivider(
 
 @androidx.compose.runtime.Composable
 private fun StoryTextBlock(
-    title: String,
-    sourceLine: String,
-    summary: String,
+    story: NewsStory,
     isAlert: Boolean,
     showSummary: Boolean,
     palette: WidgetPalette,
@@ -452,7 +532,7 @@ private fun StoryTextBlock(
 ) {
     Column(modifier = GlanceModifier.fillMaxWidth()) {
         Text(
-            text = title,
+            text = story.widgetTitle(),
             style = TextStyle(
                 color = ColorProvider(if (isAlert) palette.alertTitle else palette.storyTitle),
                 fontWeight = FontWeight.Bold,
@@ -460,25 +540,61 @@ private fun StoryTextBlock(
             ),
             maxLines = 2,
         )
-        Text(
-            text = sourceLine,
-            style = TextStyle(
-                color = ColorProvider(palette.muted),
-                fontSize = type.meta,
-            ),
-            maxLines = 1,
-        )
-        if (showSummary) {
+        Spacer(GlanceModifier.height(2.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            when {
+                isAlert -> WidgetBadge("ALERT", palette.warningPill, palette.warningText, type)
+                story.isPinned -> WidgetBadge("PINNED", palette.pinPill, palette.pinText, type)
+                story.isNew -> WidgetBadge("NEW", palette.statusPill, palette.statusText, type)
+                else -> {}
+            }
             Text(
-                text = summary,
+                text = story.widgetSourceLine(),
+                style = TextStyle(
+                    color = ColorProvider(palette.muted),
+                    fontSize = type.meta,
+                ),
+                maxLines = 1,
+            )
+        }
+        if (showSummary) {
+            Spacer(GlanceModifier.height(4.dp))
+            Text(
+                text = story.widgetSummary(),
                 style = TextStyle(
                     color = ColorProvider(palette.body),
                     fontSize = type.body,
                 ),
-                maxLines = 2,
+                maxLines = 3,
             )
         }
     }
+}
+
+@androidx.compose.runtime.Composable
+private fun WidgetBadge(
+    text: String,
+    background: Color,
+    foreground: Color,
+    type: WidgetTypography,
+) {
+    Box(
+        modifier = GlanceModifier
+            .background(ColorProvider(background))
+            .cornerRadius(4.dp)
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    ) {
+        Text(
+            text = text,
+            style = TextStyle(
+                color = ColorProvider(foreground),
+                fontWeight = FontWeight.Bold,
+                fontSize = type.meta,
+            ),
+            maxLines = 1,
+        )
+    }
+    Spacer(GlanceModifier.width(6.dp))
 }
 
 private data class WidgetPalette(
@@ -495,6 +611,8 @@ private data class WidgetPalette(
     val warningPill: Color,
     val warningText: Color,
     val feedLabel: Color,
+    val pinPill: Color,
+    val pinText: Color,
 )
 
 private data class WidgetMetrics(
@@ -583,7 +701,9 @@ private fun widgetPalette(
             statusText = Color(0xFF166534),
             warningPill = Color(0xFFFEE2E2),
             warningText = Color(0xFF991B1B),
-            feedLabel = Color(0xFF4F46E5),
+            feedLabel = Color(0xFF64748B),
+            pinPill = Color(0xFFFDE68A),
+            pinText = Color(0xFF92400E),
         )
 
         WidgetThemeMode.Dark -> WidgetPalette(
@@ -602,33 +722,30 @@ private fun widgetPalette(
             statusText = Color(0xFF86EFAC),
             warningPill = Color(0xFF3B1724),
             warningText = Color(0xFFFCA5A5),
-            feedLabel = Color(0xFF67E8F9),
+            feedLabel = Color(0xFF93A4B8),
+            pinPill = Color(0xFF4A3410),
+            pinText = Color(0xFFFCD34D),
         )
     }
 
-private fun compactStatusText(
+private fun widgetMetaLine(
+    storyCount: Int,
+    layoutMode: WidgetLayoutMode,
     runtimeEnabled: Boolean,
     fetchEnabled: Boolean,
     status: FetchStatus,
+    showClock: Boolean,
 ): String {
-    val runtime = if (runtimeEnabled) "ON" else "OFF"
-    val fetch = when {
-        !fetchEnabled -> "Fetch off"
-        status == FetchStatus.Fetching -> "Fetching"
+    val state = when {
         !runtimeEnabled -> "Paused"
-        status == FetchStatus.Failed -> "Failed"
-        else -> "Ready"
+        !fetchEnabled -> "Fetch off"
+        status == FetchStatus.Fetching -> "Updating"
+        status == FetchStatus.Failed -> "Update failed"
+        else -> "Updated ${formatWidgetNow()}"
     }
-    return "${formatWidgetNow()} · $runtime · $fetch"
-}
-
-private fun widgetSummaryText(storyCount: Int, layoutMode: WidgetLayoutMode, preferredStoryCount: Int): String {
     val stories = if (storyCount == 1) "1 story" else "$storyCount stories"
-    return if (layoutMode == WidgetLayoutMode.Column) {
-        "$stories · Column · ${preferredStoryCount.coerceIn(5, 10)} shown"
-    } else {
-        "$stories · Stack"
-    }
+    val mode = if (layoutMode == WidgetLayoutMode.Column) "" else " · one at a time"
+    return if (showClock) "$state · $stories$mode" else "$stories$mode"
 }
 
 class NewsWidgetReceiver : GlanceAppWidgetReceiver() {
@@ -801,15 +918,8 @@ class ShareStoryAction : ActionCallback {
 private val storyIdKey = ActionParameters.Key<String>("story-id")
 private val storySectionKey = ActionParameters.Key<String>("story-section")
 
-private fun NewsStory.widgetTitle(isAlert: Boolean): String {
-    val displayTitle = neutralTitle?.takeIf { it.isNotBlank() } ?: title
-    return when {
-        isAlert -> "ALERT: $displayTitle"
-        isPinned -> "PIN: $displayTitle"
-        isNew -> "NEW: $displayTitle"
-        else -> displayTitle
-    }
-}
+private fun NewsStory.widgetTitle(): String =
+    neutralTitle?.takeIf { it.isNotBlank() } ?: title
 
 private fun NewsStory.widgetSourceLine(): String =
     listOfNotNull(

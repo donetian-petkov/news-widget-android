@@ -25,7 +25,7 @@ fun setupChecklistItems(state: NewsUiState): List<SetupChecklistItem> =
         ),
         SetupChecklistItem(
             id = "ai",
-            title = "Optional - choose AI enrichment mode",
-            complete = true,
+            title = "Optional - add an AI key or pick local AI",
+            complete = state.settings.aiConfigured,
         ),
     )
