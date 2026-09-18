@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.glance.appwidget.updateAll
 import com.ainews.android.data.AiProvider
 import com.ainews.android.data.BackendMode
+import com.ainews.android.data.FeedSource
 import com.ainews.android.data.NewsMonitor
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.NewsStory
@@ -75,6 +76,7 @@ fun AiNewsApp() {
     var showSettings by remember { mutableStateOf(false) }
     var showHidden by remember { mutableStateOf(false) }
     var showMonitors by remember { mutableStateOf(false) }
+    var showFeeds by remember { mutableStateOf(false) }
 
     MaterialTheme {
         Surface(
@@ -115,6 +117,20 @@ fun AiNewsApp() {
                     onScanMonitors = {
                         NewsRepository.scanMonitorsNow()
                         scope.launch { NewsWidget().updateAll(context) }
+                    },
+                )
+            } else if (showFeeds) {
+                FeedSourceScreen(
+                    feedSources = state.feedSources,
+                    onBack = { showFeeds = false },
+                    onAddFeed = NewsRepository::addFeedSource,
+                    onDeleteFeed = NewsRepository::deleteFeedSource,
+                    onResetFeeds = NewsRepository::resetFeedSources,
+                    onRefresh = {
+                        scope.launch {
+                            NewsRepository.refreshNow()
+                            NewsWidget().updateAll(context)
+                        }
                     },
                 )
             } else if (selectedStory != null) {
@@ -166,6 +182,7 @@ fun AiNewsApp() {
                     onOpenSettings = { showSettings = true },
                     onOpenHidden = { showHidden = true },
                     onOpenMonitors = { showMonitors = true },
+                    onOpenFeeds = { showFeeds = true },
                     onOpenStory = NewsRepository::selectStory,
                     onHideStory = {
                         NewsRepository.hideStory(it)
@@ -192,6 +209,7 @@ private fun NewsFeed(
     onOpenSettings: () -> Unit,
     onOpenHidden: () -> Unit,
     onOpenMonitors: () -> Unit,
+    onOpenFeeds: () -> Unit,
     onOpenStory: (String) -> Unit,
     onHideStory: (String) -> Unit,
     onShareStory: (NewsStory) -> Unit,
@@ -214,6 +232,7 @@ private fun NewsFeed(
             onOpenSettings = onOpenSettings,
             onOpenHidden = onOpenHidden,
             onOpenMonitors = onOpenMonitors,
+            onOpenFeeds = onOpenFeeds,
         )
 
         Spacer(Modifier.height(14.dp))
@@ -250,6 +269,7 @@ private fun Header(
     onOpenSettings: () -> Unit,
     onOpenHidden: () -> Unit,
     onOpenMonitors: () -> Unit,
+    onOpenFeeds: () -> Unit,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -295,6 +315,9 @@ private fun Header(
             }
             OutlinedButton(onClick = onOpenMonitors) {
                 Text("Monitors")
+            }
+            OutlinedButton(onClick = onOpenFeeds) {
+                Text("Feeds")
             }
         }
 
@@ -391,6 +414,111 @@ private fun Header(
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF334155),
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeedSourceScreen(
+    feedSources: List<FeedSource>,
+    onBack: () -> Unit,
+    onAddFeed: (String, String) -> Unit,
+    onDeleteFeed: (String) -> Unit,
+    onResetFeeds: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    var titleDraft by remember { mutableStateOf("") }
+    var urlDraft by remember { mutableStateOf("") }
+
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(18.dp),
+    ) {
+        item {
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column {
+                    Text(
+                        text = "Feeds",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A),
+                    )
+                    Text(
+                        text = "${feedSources.size} RSS sources",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF64748B),
+                    )
+                }
+                TextButton(onClick = onBack) {
+                    Text("Done")
+                }
+            }
+        }
+
+        item {
+            SettingsSection("New RSS feed") {
+                OutlinedTextField(
+                    value = titleDraft,
+                    onValueChange = { titleDraft = it },
+                    label = { Text("Feed title") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = urlDraft,
+                    onValueChange = { urlDraft = it },
+                    label = { Text("RSS URL") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            onAddFeed(titleDraft, urlDraft)
+                            titleDraft = ""
+                            urlDraft = ""
+                        },
+                        enabled = titleDraft.isNotBlank() && urlDraft.isNotBlank(),
+                    ) {
+                        Text("Add")
+                    }
+                    OutlinedButton(onClick = onRefresh) {
+                        Text("Refresh")
+                    }
+                    TextButton(onClick = onResetFeeds) {
+                        Text("Defaults")
+                    }
+                }
+            }
+        }
+
+        items(feedSources, key = { it.id }) { source ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(14.dp),
+                ) {
+                    Text(source.title, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                    Text(
+                        source.url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF475569),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    TextButton(onClick = { onDeleteFeed(source.id) }) {
+                        Text("Remove")
                     }
                 }
             }

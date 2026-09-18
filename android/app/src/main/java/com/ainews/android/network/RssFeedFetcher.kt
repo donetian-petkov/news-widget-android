@@ -12,10 +12,11 @@ import java.util.Locale
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 
-class RssFeedFetcher(
-    private val sources: List<FeedSource> = defaultFeedSources,
-) {
-    fun fetchTopStories(limitPerFeed: Int = 8): List<NewsStory> =
+class RssFeedFetcher {
+    fun fetchTopStories(
+        sources: List<FeedSource> = defaultFeedSources,
+        limitPerFeed: Int = 8,
+    ): List<NewsStory> =
         sources.flatMap { source ->
             runCatching { fetchSource(source, limitPerFeed) }.getOrDefault(emptyList())
         }.sortedByDescending { it.publishedAt }

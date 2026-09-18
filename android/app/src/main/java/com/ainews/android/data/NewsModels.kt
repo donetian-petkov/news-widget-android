@@ -108,6 +108,7 @@ data class NewsUiState(
     val monitors: List<NewsMonitor> = emptyList(),
     val alertMatches: List<AlertMatch> = emptyList(),
     val settings: RuntimeSettings = RuntimeSettings(),
+    val feedSources: List<FeedSource> = defaultFeedSources,
     val message: String? = null,
 ) {
     val visibleStories: List<NewsStory>

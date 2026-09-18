@@ -112,13 +112,18 @@ object NewsRepository {
                 storyDao.observeStories(),
                 runtimePreferences.runtimeState,
                 runtimePreferences.monitorState,
-            ) { stories, runtimeWithSettings, monitors ->
-                Triple(
+                runtimePreferences.feedSourceState,
+            ) { stories, runtimeWithSettings, monitors, feedSources ->
+                CombinedState(
                     stories.map { it.toModel() },
                     runtimeWithSettings.first to runtimeWithSettings.second,
                     monitors,
+                    feedSources,
                 )
-            }.collect { (stories, runtimeWithSettings, monitors) ->
+            }.collect { combined ->
+                val stories = combined.stories
+                val runtimeWithSettings = combined.runtimeWithSettings
+                val monitors = combined.monitors
                 val (runtime, settings) = runtimeWithSettings
                 _state.update { current ->
                     current.copy(
@@ -128,11 +133,19 @@ object NewsRepository {
                             providerKeySaved = settings.providerKeySaved || secureProviderKeyStore.hasKey(),
                         ),
                         monitors = monitors,
+                        feedSources = combined.feedSources,
                     )
                 }
             }
         }
     }
+
+    private data class CombinedState(
+        val stories: List<NewsStory>,
+        val runtimeWithSettings: Pair<RuntimeState, RuntimeSettings>,
+        val monitors: List<NewsMonitor>,
+        val feedSources: List<FeedSource>,
+    )
 
     fun selectStory(storyId: String?) {
         _state.update { it.copy(selectedStoryId = storyId, message = null) }
@@ -255,6 +268,38 @@ object NewsRepository {
                 alertMatches = current.alertMatches.filterNot { it.monitorId == monitorId },
                 message = "Monitor deleted",
             )
+        }
+    }
+
+    fun addFeedSource(title: String, url: String) {
+        val cleanTitle = title.trim()
+        val cleanUrl = url.trim()
+        if (cleanTitle.isBlank() || cleanUrl.isBlank()) return
+        val feedSource = FeedSource(
+            id = "feed-${System.currentTimeMillis()}",
+            title = cleanTitle,
+            url = cleanUrl,
+        )
+        _state.update { current ->
+            val feedSources = current.feedSources + feedSource
+            persistFeedSources(feedSources)
+            current.copy(feedSources = feedSources, message = "Feed added")
+        }
+    }
+
+    fun deleteFeedSource(feedSourceId: String) {
+        _state.update { current ->
+            val feedSources = current.feedSources.filterNot { it.id == feedSourceId }
+                .ifEmpty { defaultFeedSources }
+            persistFeedSources(feedSources)
+            current.copy(feedSources = feedSources, message = "Feed removed")
+        }
+    }
+
+    fun resetFeedSources() {
+        persistFeedSources(defaultFeedSources)
+        _state.update {
+            it.copy(feedSources = defaultFeedSources, message = "Default feeds restored")
         }
     }
 
@@ -398,7 +443,7 @@ object NewsRepository {
         val fetchedStories = withContext(Dispatchers.IO) {
             runCatching {
                 when (settings.backendMode) {
-                    BackendMode.NativeRuntime -> rssFeedFetcher.fetchTopStories()
+                    BackendMode.NativeRuntime -> rssFeedFetcher.fetchTopStories(sources = _state.value.feedSources)
                     BackendMode.RemoteBackend -> remoteBackendClient.fetchStories(settings.remoteBackendUrl)
                 }
             }.getOrDefault(emptyList())
@@ -572,6 +617,12 @@ object NewsRepository {
     private fun persistMonitors(monitors: List<NewsMonitor>) {
         repositoryScope.launch {
             runtimePreferences.saveMonitors(monitors)
+        }
+    }
+
+    private fun persistFeedSources(feedSources: List<FeedSource>) {
+        repositoryScope.launch {
+            runtimePreferences.saveFeedSources(feedSources)
         }
     }
 }
