@@ -1,5 +1,7 @@
 package com.ainews.android.ui
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Intent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -55,6 +57,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
 import com.ainews.android.R
 import com.ainews.android.data.AiProvider
@@ -78,6 +81,8 @@ import com.ainews.android.data.effectiveWidgetFeedSourceIds
 import com.ainews.android.data.setupChecklistItems
 import com.ainews.android.network.ImageDiskCache
 import com.ainews.android.widget.NewsWidget
+import com.ainews.android.widget.NewsWidgetReceiver
+import com.ainews.android.widget.WidgetInstancePreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -880,9 +885,15 @@ private fun SettingsScreen(
     onSaveKey: (String) -> Unit,
     onClearKey: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var draft by remember(settings) { mutableStateOf(settings) }
     var keyDraft by remember { mutableStateOf("") }
     var presetNameDraft by remember { mutableStateOf("") }
+    var widgetRefreshToken by remember { mutableStateOf(0) }
+    val widgetInstances by produceState<List<WidgetInstanceInfo>>(initialValue = emptyList(), widgetRefreshToken) {
+        value = loadWidgetInstances(context)
+    }
 
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1196,6 +1207,38 @@ private fun SettingsScreen(
                         )
                     }
                 }
+
+                Text(
+                    text = "Active widgets",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFF64748B),
+                )
+                if (widgetInstances.isEmpty()) {
+                    Text(
+                        text = "No active widgets",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF64748B),
+                    )
+                } else {
+                    widgetInstances.forEachIndexed { index, widget ->
+                        WidgetInstanceRow(
+                            title = "Widget ${index + 1}",
+                            selectedPresetId = widget.presetId,
+                            presets = draft.widgetPresets,
+                            feedSources = feedSources,
+                            onSelect = { presetId ->
+                                WidgetInstancePreferences(context).savePresetId(widget.appWidgetId, presetId)
+                                widgetRefreshToken += 1
+                                scope.launch {
+                                    runCatching {
+                                        val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(widget.appWidgetId)
+                                        NewsWidget().update(context, glanceId)
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
             }
         }
 
@@ -1244,6 +1287,73 @@ private fun SavedWidgetPresetRow(
             Text("Delete")
         }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WidgetInstanceRow(
+    title: String,
+    selectedPresetId: String?,
+    presets: List<WidgetPreset>,
+    feedSources: List<FeedSource>,
+    onSelect: (String?) -> Unit,
+) {
+    val selectedPreset = presets.firstOrNull { it.id == selectedPresetId }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = title,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF0F172A),
+        )
+        Text(
+            text = selectedPreset?.let { "Using ${it.name}" } ?: "Using current settings",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF64748B),
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            TopicChip(
+                text = "Current",
+                selected = selectedPresetId == null || selectedPreset == null,
+                onClick = { onSelect(null) },
+            )
+            presets.forEach { preset ->
+                TopicChip(
+                    text = preset.name,
+                    selected = selectedPresetId == preset.id,
+                    onClick = { onSelect(preset.id) },
+                )
+            }
+        }
+        selectedPreset?.let { preset ->
+            Text(
+                text = "${widgetFeedTitle(preset.effectiveFeedSourceIds(), feedSources)} - ${preset.layoutMode.name} - ${preset.themeMode.name} - ${preset.densityMode.name} - ${preset.typographyMode.name}",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF64748B),
+            )
+        }
+    }
+}
+
+private data class WidgetInstanceInfo(
+    val appWidgetId: Int,
+    val presetId: String?,
+)
+
+private fun loadWidgetInstances(context: android.content.Context): List<WidgetInstanceInfo> {
+    val manager = AppWidgetManager.getInstance(context)
+    val component = ComponentName(context, NewsWidgetReceiver::class.java)
+    val preferences = WidgetInstancePreferences(context)
+    return manager.getAppWidgetIds(component)
+        .sorted()
+        .map { appWidgetId ->
+            WidgetInstanceInfo(
+                appWidgetId = appWidgetId,
+                presetId = preferences.presetId(appWidgetId),
+            )
+        }
 }
 
 @Composable
