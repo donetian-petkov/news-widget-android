@@ -18,7 +18,7 @@ class RemoteBackendClient {
         ).distinct()
 
         return candidates.firstNotNullOfOrNull { url ->
-            runCatching { fetchJson(url).toStories() }.getOrNull()?.takeIf { it.isNotEmpty() }
+            runCatching { parseStoriesJson(fetchJson(url)) }.getOrNull()?.takeIf { it.isNotEmpty() }
         }.orEmpty()
     }
 
@@ -109,8 +109,15 @@ class RemoteBackendClient {
         }
     }
 
-    private fun String.toStories(): List<NewsStory> {
-        val root = trim()
+    private fun JSONArray.toStringList(): List<String> =
+        buildList {
+            for (index in 0 until length()) {
+                optString(index).takeIf { it.isNotBlank() }?.let(::add)
+            }
+        }
+
+    internal fun parseStoriesJson(json: String): List<NewsStory> {
+        val root = json.trim()
         val array = if (root.startsWith("[")) {
             JSONArray(root)
         } else {
@@ -152,11 +159,4 @@ class RemoteBackendClient {
             }
         }
     }
-
-    private fun JSONArray.toStringList(): List<String> =
-        buildList {
-            for (index in 0 until length()) {
-                optString(index).takeIf { it.isNotBlank() }?.let(::add)
-            }
-        }
 }
