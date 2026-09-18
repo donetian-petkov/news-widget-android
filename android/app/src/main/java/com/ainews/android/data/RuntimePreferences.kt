@@ -82,10 +82,11 @@ class RuntimePreferences(
 
     val feedSourceState: Flow<List<FeedSource>> =
         context.runtimeDataStore.data.map { prefs ->
-            prefs[Keys.feedSourcesJson]
+            val savedFeeds = prefs[Keys.feedSourcesJson]
                 ?.let(RuntimePreferencesCodec::feedSourcesFromJson)
                 ?.takeIf { it.isNotEmpty() }
                 ?: defaultFeedSources
+            mergeWithDefaultFeedSources(savedFeeds)
         }
 
     suspend fun save(runtime: RuntimeState) {

@@ -3,6 +3,7 @@ package com.ainews.android.ui
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -31,6 +32,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -38,6 +40,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -86,6 +90,10 @@ import com.ainews.android.widget.WidgetInstancePreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -99,12 +107,42 @@ fun AiNewsApp() {
     var showMonitors by remember { mutableStateOf(false) }
     var showFeeds by remember { mutableStateOf(false) }
 
-    MaterialTheme {
+    BackHandler(enabled = showSettings || showHidden || showMonitors || showFeeds || selectedStory != null) {
+        when {
+            selectedStory != null -> NewsRepository.selectStory(null)
+            showSettings -> showSettings = false
+            showHidden -> showHidden = false
+            showMonitors -> showMonitors = false
+            showFeeds -> showFeeds = false
+        }
+    }
+
+    val colorScheme = if (state.settings.widgetThemeMode == WidgetThemeMode.Dark) {
+        darkColorScheme(
+            background = Color(0xFF07111F),
+            surface = Color(0xFF0B2035),
+            primary = Color(0xFF8B5CF6),
+            onSurface = Color(0xFFEAF6FF),
+            onSurfaceVariant = Color(0xFFB7C5D8),
+            outlineVariant = Color(0xFF27415B),
+        )
+    } else {
+        lightColorScheme(
+            background = Color(0xFFF8FAFC),
+            surface = Color.White,
+            primary = Color(0xFF6D54B8),
+            onSurface = Color(0xFF0F172A),
+            onSurfaceVariant = Color(0xFF475569),
+            outlineVariant = Color(0xFFE2E8F0),
+        )
+    }
+
+    MaterialTheme(colorScheme = colorScheme) {
         Surface(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing),
-            color = Color(0xFFF8FAFC),
+            color = MaterialTheme.colorScheme.background,
         ) {
             if (showSettings) {
                 SettingsScreen(
@@ -246,10 +284,10 @@ private fun NewsFeed(
     onShareStory: (NewsStory) -> Unit,
 ) {
     LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
             .fillMaxSize()
-            .padding(18.dp),
+            .padding(14.dp),
     ) {
         item {
             Header(
@@ -286,7 +324,7 @@ private fun NewsFeed(
                 Text(
                     text = "No visible stories",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF64748B),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -313,7 +351,7 @@ private fun Header(
     onUseLocalAi: () -> Unit,
 ) {
     Column(
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -324,14 +362,14 @@ private fun Header(
             Column {
                 Text(
                     text = state.feedTitle,
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF0F172A),
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
                     text = state.runtime.statusText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF475569),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
@@ -396,7 +434,7 @@ private fun Header(
                     "Auto power-off armed"
                 },
                 style = MaterialTheme.typography.labelMedium,
-                color = Color(0xFF475569),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedButton(onClick = { onSetTimeout(1) }, enabled = state.runtime.runtimeEnabled) {
                 Text("1h")
@@ -412,7 +450,7 @@ private fun Header(
         Text(
             text = "${state.runtime.aiBudgetText} / ${state.settings.aiDailyBudgetCents}c budget",
             style = MaterialTheme.typography.labelMedium,
-            color = Color(0xFF64748B),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         FlowRow(
@@ -478,13 +516,13 @@ private fun Header(
                     Text(
                         text = monitor.sentence,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF0F172A),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     monitor.lastMatchExplanation?.let {
                         Text(
                             text = it,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF334155),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -505,6 +543,17 @@ private fun HeaderIconButton(
             painter = painterResource(iconRes),
             contentDescription = contentDescription,
             modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
+private fun BackIconButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            painter = painterResource(R.drawable.ic_arrow_back),
+            contentDescription = "Back",
+            modifier = Modifier.size(22.dp),
         )
     }
 }
@@ -555,7 +604,7 @@ private fun SetupChecklistCard(
                 Text(
                     text = "${if (item.complete) "Done" else "Todo"} - ${item.title}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (item.complete) Color(0xFF166534) else Color(0xFF334155),
+                    color = if (item.complete) Color(0xFF166534) else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             FlowRow(
@@ -612,17 +661,15 @@ private fun FeedSourceScreen(
                         text = "Feeds",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         text = "${feedSources.size} RSS sources",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF64748B),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = onBack) {
-                    Text("Done")
-                }
+                BackIconButton(onClick = onBack)
             }
         }
 
@@ -663,19 +710,19 @@ private fun FeedSourceScreen(
 
         items(feedSources, key = { it.id }) { source ->
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 shape = RoundedCornerShape(8.dp),
             ) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(14.dp),
                 ) {
-                    Text(source.title, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                    Text(source.title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     Text(
                         source.url,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF475569),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -716,17 +763,15 @@ private fun MonitorScreen(
                         text = "Monitors",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         text = "Alert sentences scanned against titles and summaries",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF64748B),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = onBack) {
-                    Text("Done")
-                }
+                BackIconButton(onClick = onBack)
             }
         }
 
@@ -757,8 +802,8 @@ private fun MonitorScreen(
 
         items(monitors, key = { it.id }) { monitor ->
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 shape = RoundedCornerShape(8.dp),
             ) {
                 Column(
@@ -773,19 +818,19 @@ private fun MonitorScreen(
                         Text(
                             text = if (monitor.enabled) "Enabled" else "Paused",
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (monitor.enabled) Color(0xFF166534) else Color(0xFF64748B),
+                            color = if (monitor.enabled) Color(0xFF166534) else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Switch(
                             checked = monitor.enabled,
                             onCheckedChange = { onToggleMonitor(monitor.id) },
                         )
                     }
-                    Text(monitor.sentence, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
+                    Text(monitor.sentence, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                     monitor.lastMatchExplanation?.let {
                         Text(
                             text = it,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF334155),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     TextButton(onClick = { onDeleteMonitor(monitor.id) }) {
@@ -821,17 +866,15 @@ private fun HiddenStoriesScreen(
                         text = "Hidden Stories",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         text = "${stories.size} hidden",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF64748B),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = onBack) {
-                    Text("Done")
-                }
+                BackIconButton(onClick = onBack)
             }
         }
 
@@ -845,20 +888,20 @@ private fun HiddenStoriesScreen(
 
         items(stories, key = { it.id }) { story ->
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 shape = RoundedCornerShape(8.dp),
             ) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(14.dp),
                 ) {
-                    Text(story.source, style = MaterialTheme.typography.labelMedium, color = Color(0xFF64748B))
-                    Text(story.title, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                    Text(story.source, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(story.title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     Text(
                         story.summary,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF334155),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -874,7 +917,7 @@ private fun HiddenStoriesScreen(
                 Text(
                     text = "No hidden stories",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF64748B),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -918,17 +961,15 @@ private fun SettingsScreen(
                         text = "Settings",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         text = "Runtime, provider, and monitor controls",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF64748B),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = onBack) {
-                    Text("Done")
-                }
+                BackIconButton(onClick = onBack)
             }
         }
 
@@ -1011,7 +1052,7 @@ private fun SettingsScreen(
                 Text(
                     text = "Current usage: ${settings.providerKeySaved.let { if (it) "provider key saved" else "local fallback" }}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF64748B),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -1022,7 +1063,7 @@ private fun SettingsScreen(
                 Text(
                     text = "Feed",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF64748B),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1062,7 +1103,7 @@ private fun SettingsScreen(
                 Text(
                     text = "Layout",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF64748B),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1080,7 +1121,7 @@ private fun SettingsScreen(
                 Text(
                     text = "Background",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF64748B),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1098,7 +1139,7 @@ private fun SettingsScreen(
                 Text(
                     text = "Theme",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF64748B),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1116,7 +1157,7 @@ private fun SettingsScreen(
                 Text(
                     text = "Density",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF64748B),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1134,7 +1175,7 @@ private fun SettingsScreen(
                 Text(
                     text = "Type",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF64748B),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1152,7 +1193,7 @@ private fun SettingsScreen(
                 Text(
                     text = "Saved views",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF64748B),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 OutlinedTextField(
                     value = presetNameDraft,
@@ -1187,7 +1228,7 @@ private fun SettingsScreen(
                     Text(
                         text = "No saved widget views yet",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF64748B),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
                     draft.widgetPresets.forEach { preset ->
@@ -1217,13 +1258,13 @@ private fun SettingsScreen(
                 Text(
                     text = "Active widgets",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF64748B),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (widgetInstances.isEmpty()) {
                     Text(
                         text = "No active widgets",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF64748B),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
                     widgetInstances.forEachIndexed { index, widget ->
@@ -1279,11 +1320,11 @@ private fun SavedWidgetPresetRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.weight(1f)) {
-            Text(preset.name, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
+            Text(preset.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
             Text(
                 text = "$feedTitle - ${preset.layoutMode.name} - ${preset.backgroundMode.name} - ${preset.themeMode.name} - ${preset.densityMode.name} - ${preset.typographyMode.name}",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF64748B),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         TextButton(onClick = onApply) {
@@ -1309,12 +1350,12 @@ private fun WidgetInstanceRow(
         Text(
             text = title,
             fontWeight = FontWeight.SemiBold,
-            color = Color(0xFF0F172A),
+            color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
             text = selectedPreset?.let { "Using ${it.name}" } ?: "Using current settings",
             style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFF64748B),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1337,7 +1378,7 @@ private fun WidgetInstanceRow(
             Text(
                 text = "${widgetFeedTitle(preset.effectiveFeedSourceIds(), feedSources)} - ${preset.layoutMode.name} - ${preset.themeMode.name} - ${preset.densityMode.name} - ${preset.typographyMode.name}",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF64748B),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -1368,15 +1409,15 @@ private fun SettingsSection(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         shape = RoundedCornerShape(8.dp),
     ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.padding(14.dp),
         ) {
-            Text(title, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+            Text(title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             content()
         }
     }
@@ -1395,8 +1436,8 @@ private fun ToggleRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.weight(1f)) {
-            Text(label, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
-            Text(description, style = MaterialTheme.typography.bodySmall, color = Color(0xFF64748B))
+            Text(label, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
@@ -1429,8 +1470,8 @@ private fun StoryCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onOpen),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         shape = RoundedCornerShape(8.dp),
     ) {
         Column(
@@ -1443,9 +1484,9 @@ private fun StoryCard(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    text = story.source,
+                    text = story.storyMetaLine(),
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF64748B),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (story.isNew) {
                     Badge("NEW", Color(0xFFDCFCE7), Color(0xFF166534))
@@ -1456,15 +1497,15 @@ private fun StoryCard(
             }
 
             Text(
-                text = story.title,
+                text = story.displayTitle(),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF0F172A),
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
                 text = story.summary,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF334155),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1481,7 +1522,7 @@ private fun StoryCard(
                     Badge(it, Color(0xFFE0F2FE), Color(0xFF075985))
                 }
                 if (story.aiFieldsAvailable) {
-                    Badge("AI", Color(0xFFF1F5F9), Color(0xFF475569))
+                    Badge("AI", Color(0xFFF1F5F9), MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
@@ -1514,23 +1555,21 @@ private fun StoryDetail(
             .padding(18.dp),
     ) {
         item {
-            TextButton(onClick = onBack) {
-                Text("Back")
-            }
+            BackIconButton(onClick = onBack)
         }
         item {
             Text(
-                text = story.title,
+                text = story.displayTitle(),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF0F172A),
+                color = MaterialTheme.colorScheme.onSurface,
             )
         }
         item {
             Text(
-                text = "${story.source} - ${story.sourceUrl}",
+                text = "${story.storyMetaLine()} - ${story.sourceUrl}",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF64748B),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         item { DetailBlock("Summary", story.summary) }
@@ -1554,14 +1593,14 @@ private fun StoryDetail(
 @Composable
 private fun DetailBlock(title: String, body: String) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         shape = RoundedCornerShape(8.dp),
     ) {
         Column(Modifier.padding(14.dp)) {
-            Text(title, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+            Text(title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(6.dp))
-            Text(body, color = Color(0xFF334155))
+            Text(body, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -1584,7 +1623,7 @@ private fun StoryImage(imageUrl: String) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(150.dp)
-                .background(Color(0xFFE2E8F0), RoundedCornerShape(8.dp)),
+                .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
         )
     }
 }
@@ -1611,8 +1650,8 @@ private fun TopicChip(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val background = if (selected) Color(0xFF0F172A) else Color(0xFFE2E8F0)
-    val foreground = if (selected) Color.White else Color(0xFF334155)
+    val background = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant
+    val foreground = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         modifier = Modifier
             .background(background, RoundedCornerShape(6.dp))
@@ -1647,3 +1686,21 @@ private fun shareStory(context: android.content.Context, story: NewsStory) {
     }
     context.startActivity(Intent.createChooser(intent, "Share story"))
 }
+
+private fun NewsStory.displayTitle(): String =
+    neutralTitle?.takeIf { it.isNotBlank() } ?: title
+
+private fun NewsStory.storyMetaLine(): String =
+    listOfNotNull(
+        source,
+        formatStoryTime(publishedAt),
+        topicLabels.take(2).joinToString(", ").takeIf { it.isNotBlank() },
+        "AI".takeIf { aiFieldsAvailable },
+    ).joinToString(" - ")
+
+private fun formatStoryTime(epochMillis: Long): String =
+    runCatching {
+        Instant.ofEpochMilli(epochMillis)
+            .atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("d MMM HH:mm", Locale.getDefault()))
+    }.getOrDefault("")

@@ -1,7 +1,11 @@
 package com.ainews.android.widget
 
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.Image
@@ -41,9 +45,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ainews.android.MainActivity
 import com.ainews.android.R
 import com.ainews.android.data.FetchStatus
+import com.ainews.android.data.NewsStory
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.WidgetBackgroundMode
 import com.ainews.android.data.WidgetDensityMode
@@ -55,6 +59,11 @@ import com.ainews.android.data.effectiveWidgetFeedSourceIds
 import com.ainews.android.network.ImageDiskCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class NewsWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -107,7 +116,6 @@ class NewsWidget : GlanceAppWidget() {
             val showSummary = size.width >= 260.dp && size.height >= metrics.summaryHeightThreshold
             val showActions = size.width >= 220.dp && size.height >= 150.dp
             val showStatusText = size.width >= 260.dp
-            val showMetrics = size.width >= 260.dp && size.height >= 180.dp
             val showThumbnails = size.width >= 260.dp && size.height >= 170.dp
             val stackMode = settings.widgetLayoutMode == WidgetLayoutMode.Stack
             val stackIndex = normalizedStackIndex(settings.widgetStackIndex, allWidgetStories.size)
@@ -176,22 +184,29 @@ class NewsWidget : GlanceAppWidget() {
                     )
                 }
 
-                if (showMetrics) {
-                    Text(
-                        text = widgetSummaryText(allWidgetStories.size, settings.widgetLayoutMode),
-                        style = TextStyle(
-                            color = ColorProvider(palette.muted),
-                            fontSize = type.meta,
-                        ),
-                        maxLines = 1,
-                    )
-                }
+                Text(
+                    text = widgetSummaryText(allWidgetStories.size, settings.widgetLayoutMode),
+                    style = TextStyle(
+                        color = ColorProvider(palette.muted),
+                        fontSize = type.meta,
+                    ),
+                    maxLines = 1,
+                )
 
                 Spacer(GlanceModifier.height(metrics.sectionGap))
 
+                var previousSource: String? = null
                 stories.forEach { story ->
                     val isAlert = state.alertMatches.any { it.storyId == story.id }
                     val thumbnail = cachedImages[story.id].takeIf { showThumbnails }
+                    if (!stackMode && previousSource != story.source) {
+                        FeedDivider(
+                            feedName = story.source,
+                            palette = palette,
+                            type = type,
+                        )
+                        previousSource = story.source
+                    }
                     Column(
                         modifier = GlanceModifier
                             .fillMaxWidth()
@@ -209,8 +224,8 @@ class NewsWidget : GlanceAppWidget() {
                         if (thumbnail == null) {
                             StoryTextBlock(
                                 title = story.widgetTitle(isAlert = isAlert),
-                                sourceLine = "${story.source} - ${story.topicLabels.joinToString(", ")}",
-                                summary = story.summary,
+                                sourceLine = story.widgetSourceLine(),
+                                summary = story.widgetSummary(),
                                 isAlert = isAlert,
                                 showSummary = showSummary,
                                 palette = palette,
@@ -229,8 +244,8 @@ class NewsWidget : GlanceAppWidget() {
                                 Spacer(GlanceModifier.width(metrics.thumbnailGap))
                                 StoryTextBlock(
                                     title = story.widgetTitle(isAlert = isAlert),
-                                    sourceLine = "${story.source} - ${story.topicLabels.joinToString(", ")}",
-                                    summary = story.summary,
+                                    sourceLine = story.widgetSourceLine(),
+                                    summary = story.widgetSummary(),
                                     isAlert = isAlert,
                                     showSummary = showSummary,
                                     palette = palette,
@@ -242,7 +257,7 @@ class NewsWidget : GlanceAppWidget() {
                             Row(horizontalAlignment = Alignment.Start) {
                                 WidgetIconButton(
                                     iconRes = R.drawable.ic_open,
-                                    contentDescription = "Open story",
+                                    contentDescription = "Open source",
                                     action = actionRunCallback<OpenStoryAction>(
                                         actionParametersOf(storyIdKey to story.id),
                                     ),
@@ -255,6 +270,13 @@ class NewsWidget : GlanceAppWidget() {
                                     ),
                                 )
                                 if (size.width >= 300.dp) {
+                                    WidgetIconButton(
+                                        iconRes = R.drawable.ic_copy,
+                                        contentDescription = "Copy link",
+                                        action = actionRunCallback<CopyStoryLinkAction>(
+                                            actionParametersOf(storyIdKey to story.id),
+                                        ),
+                                    )
                                     WidgetIconButton(
                                         iconRes = R.drawable.ic_share,
                                         contentDescription = "Share story",
@@ -269,7 +291,7 @@ class NewsWidget : GlanceAppWidget() {
                     Spacer(GlanceModifier.height(metrics.cardGap))
                 }
 
-                if (stackMode && allWidgetStories.size > 1 && showMetrics) {
+                if (stackMode && allWidgetStories.size > 1) {
                     Row(horizontalAlignment = Alignment.CenterHorizontally) {
                         WidgetIconButton(
                             iconRes = R.drawable.ic_arrow_up,
@@ -327,6 +349,24 @@ private fun StatusDot(
 }
 
 @androidx.compose.runtime.Composable
+private fun FeedDivider(
+    feedName: String,
+    palette: WidgetPalette,
+    type: WidgetTypography,
+) {
+    Text(
+        text = feedName.uppercase(Locale.getDefault()),
+        style = TextStyle(
+            color = ColorProvider(palette.feedLabel),
+            fontWeight = FontWeight.Bold,
+            fontSize = type.meta,
+        ),
+        maxLines = 1,
+    )
+    Spacer(GlanceModifier.height(3.dp))
+}
+
+@androidx.compose.runtime.Composable
 private fun StoryTextBlock(
     title: String,
     sourceLine: String,
@@ -380,6 +420,7 @@ private data class WidgetPalette(
     val statusText: Color,
     val warningPill: Color,
     val warningText: Color,
+    val feedLabel: Color,
 )
 
 private data class WidgetMetrics(
@@ -468,6 +509,7 @@ private fun widgetPalette(
             statusText = Color(0xFF166534),
             warningPill = Color(0xFFFEE2E2),
             warningText = Color(0xFF991B1B),
+            feedLabel = Color(0xFF4F46E5),
         )
 
         WidgetThemeMode.Dark -> WidgetPalette(
@@ -486,6 +528,7 @@ private fun widgetPalette(
             statusText = Color(0xFF86EFAC),
             warningPill = Color(0xFF3B1724),
             warningText = Color(0xFFFCA5A5),
+            feedLabel = Color(0xFF67E8F9),
         )
     }
 
@@ -502,7 +545,7 @@ private fun compactStatusText(
         status == FetchStatus.Failed -> "Failed"
         else -> "Ready"
     }
-    return "$runtime · $fetch"
+    return "${formatWidgetNow()} · $runtime · $fetch"
 }
 
 private fun widgetSummaryText(storyCount: Int, layoutMode: WidgetLayoutMode): String {
@@ -578,16 +621,27 @@ class OpenStoryAction : ActionCallback {
         parameters: ActionParameters,
     ) {
         val storyId = parameters[storyIdKey] ?: return
-        NewsRepository.selectStory(storyId)
-        val intent = Intent(context, MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_STORY_ID, storyId)
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP,
-            )
+        val story = NewsRepository.state.value.stories.firstOrNull { it.id == storyId } ?: return
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(story.sourceUrl)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
+    }
+}
+
+class CopyStoryLinkAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val storyId = parameters[storyIdKey] ?: return
+        val story = NewsRepository.state.value.stories.firstOrNull { it.id == storyId } ?: return
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(story.title, story.sourceUrl))
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, "Story link copied", Toast.LENGTH_SHORT).show()
+        }
     }
 }
 
@@ -607,9 +661,34 @@ class ShareStoryAction : ActionCallback {
 
 private val storyIdKey = ActionParameters.Key<String>("story-id")
 
-private fun com.ainews.android.data.NewsStory.widgetTitle(isAlert: Boolean): String =
-    when {
-        isAlert -> "ALERT: $title"
-        isNew -> "NEW: $title"
-        else -> title
+private fun NewsStory.widgetTitle(isAlert: Boolean): String {
+    val displayTitle = neutralTitle?.takeIf { it.isNotBlank() } ?: title
+    return when {
+        isAlert -> "ALERT: $displayTitle"
+        isNew -> "NEW: $displayTitle"
+        else -> displayTitle
     }
+}
+
+private fun NewsStory.widgetSourceLine(): String =
+    listOfNotNull(
+        formatWidgetTime(publishedAt),
+        topicLabels.take(2).joinToString(", ").takeIf { it.isNotBlank() },
+        "AI".takeIf { aiFieldsAvailable },
+    ).joinToString(" · ")
+
+private fun NewsStory.widgetSummary(): String =
+    research?.takeIf { it.isNotBlank() }
+        ?: translation?.takeIf { it.isNotBlank() }
+        ?: summary
+
+private fun formatWidgetNow(): String =
+    LocalDateTime.now()
+        .format(DateTimeFormatter.ofPattern("d MMM HH:mm", Locale.getDefault()))
+
+private fun formatWidgetTime(epochMillis: Long): String =
+    runCatching {
+        Instant.ofEpochMilli(epochMillis)
+            .atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("d MMM HH:mm", Locale.getDefault()))
+    }.getOrDefault("")
