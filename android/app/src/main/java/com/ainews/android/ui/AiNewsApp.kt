@@ -86,6 +86,10 @@ fun AiNewsApp() {
                         NewsRepository.toggleAi()
                         scope.launch { NewsWidget().updateAll(context) }
                     },
+                    onSetTimeout = {
+                        NewsRepository.setAutoPowerOff(it)
+                        scope.launch { NewsWidget().updateAll(context) }
+                    },
                     onRestoreHidden = {
                         NewsRepository.restoreHidden()
                         scope.launch { NewsWidget().updateAll(context) }
@@ -108,6 +112,7 @@ private fun NewsFeed(
     onRefresh: () -> Unit,
     onPower: () -> Unit,
     onAi: () -> Unit,
+    onSetTimeout: (Long?) -> Unit,
     onRestoreHidden: () -> Unit,
     onOpenStory: (String) -> Unit,
     onHideStory: (String) -> Unit,
@@ -123,6 +128,7 @@ private fun NewsFeed(
             onRefresh = onRefresh,
             onPower = onPower,
             onAi = onAi,
+            onSetTimeout = onSetTimeout,
             onRestoreHidden = onRestoreHidden,
         )
 
@@ -150,6 +156,7 @@ private fun Header(
     onRefresh: () -> Unit,
     onPower: () -> Unit,
     onAi: () -> Unit,
+    onSetTimeout: (Long?) -> Unit,
     onRestoreHidden: () -> Unit,
 ) {
     Column(
@@ -190,6 +197,32 @@ private fun Header(
             }
             OutlinedButton(onClick = onAi) {
                 Text(if (state.runtime.aiEnabled) "AI on" else "AI off")
+            }
+        }
+
+        Column(
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = if (state.runtime.autoPowerOffAt == null) {
+                    "Auto power-off not set"
+                } else {
+                    "Auto power-off armed"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = Color(0xFF475569),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { onSetTimeout(1) }, enabled = state.runtime.runtimeEnabled) {
+                    Text("1h")
+                }
+                OutlinedButton(onClick = { onSetTimeout(4) }, enabled = state.runtime.runtimeEnabled) {
+                    Text("4h")
+                }
+                OutlinedButton(onClick = { onSetTimeout(null) }) {
+                    Text("Clear")
+                }
             }
         }
 

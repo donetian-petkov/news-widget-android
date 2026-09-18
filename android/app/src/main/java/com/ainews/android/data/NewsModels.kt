@@ -29,7 +29,8 @@ data class RuntimeState(
                 lastFetchStatus == FetchStatus.Failed -> "Fetch failed"
                 else -> "Fetch ready"
             }
-            return "$runtime - $fetch"
+            val timeout = if (runtimeEnabled && autoPowerOffAt != null) " - Auto off armed" else ""
+            return "$runtime - $fetch$timeout"
         }
 }
 

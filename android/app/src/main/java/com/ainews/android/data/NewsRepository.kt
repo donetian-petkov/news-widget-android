@@ -3,6 +3,7 @@ package com.ainews.android.data
 import android.content.Context
 import androidx.room.Room
 import com.ainews.android.network.RssFeedFetcher
+import com.ainews.android.worker.AutoPowerOffWorker
 import com.ainews.android.worker.RefreshNewsWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -136,12 +137,10 @@ object NewsRepository {
                 RefreshNewsWorker.schedule(appContext)
             } else {
                 RefreshNewsWorker.cancel(appContext)
+                AutoPowerOffWorker.cancel(appContext)
             }
             current.copy(
-                runtime = current.runtime.copy(
-                    runtimeEnabled = enabled,
-                    lastFetchStatus = if (enabled) FetchStatus.Idle else FetchStatus.Paused,
-                ),
+                runtime = runtime,
                 message = if (enabled) "Runtime on" else "Runtime off",
             )
         }
@@ -158,6 +157,47 @@ object NewsRepository {
             current.copy(
                 runtime = runtime,
                 message = if (enabled) "AI enrichment on" else "AI enrichment off",
+            )
+        }
+    }
+
+    fun setAutoPowerOff(hoursFromNow: Long?) {
+        val autoPowerOffAt = hoursFromNow?.let {
+            System.currentTimeMillis() + it * 60 * 60 * 1000
+        }
+        _state.update { current ->
+            val runtime = current.runtime.copy(autoPowerOffAt = autoPowerOffAt)
+            persistRuntime(runtime)
+            if (autoPowerOffAt == null) {
+                AutoPowerOffWorker.cancel(appContext)
+            } else {
+                AutoPowerOffWorker.schedule(appContext, autoPowerOffAt)
+            }
+            current.copy(
+                runtime = runtime,
+                message = if (hoursFromNow == null) {
+                    "Auto power-off cleared"
+                } else {
+                    "Auto power-off set for ${hoursFromNow}h"
+                },
+            )
+        }
+    }
+
+    fun powerOffFromTimeout() {
+        _state.update { current ->
+            val runtime = current.runtime.copy(
+                runtimeEnabled = false,
+                aiEnabled = false,
+                autoPowerOffAt = null,
+                lastFetchStatus = FetchStatus.Paused,
+                aiQueueStatus = "Paused",
+            )
+            persistRuntime(runtime)
+            RefreshNewsWorker.cancel(appContext)
+            current.copy(
+                runtime = runtime,
+                message = "Auto power-off completed",
             )
         }
     }
