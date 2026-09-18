@@ -40,6 +40,7 @@ import com.ainews.android.R
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.WidgetBackgroundMode
 import com.ainews.android.data.WidgetLayoutMode
+import com.ainews.android.data.WidgetThemeMode
 import com.ainews.android.network.ImageDiskCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -76,16 +77,16 @@ class NewsWidget : GlanceAppWidget() {
             } else {
                 allWidgetStories.take(storyLimit)
             }
-            val widgetBackground = when (state.settings.widgetBackgroundMode) {
-                WidgetBackgroundMode.Solid -> Color(0xFFF8FAFC)
-                WidgetBackgroundMode.Transparent -> Color(0xDDF8FAFC)
-            }
+            val palette = widgetPalette(
+                themeMode = state.settings.widgetThemeMode,
+                backgroundMode = state.settings.widgetBackgroundMode,
+            )
             LocalContext.current
 
             Column(
                 modifier = GlanceModifier
                     .fillMaxSize()
-                    .background(ColorProvider(widgetBackground))
+                    .background(ColorProvider(palette.background))
                     .padding(12.dp),
                 verticalAlignment = Alignment.Top,
                 horizontalAlignment = Alignment.Start,
@@ -93,14 +94,14 @@ class NewsWidget : GlanceAppWidget() {
                 Text(
                     text = state.widgetFeedTitle,
                     style = TextStyle(
-                        color = ColorProvider(Color(0xFF0F172A)),
+                        color = ColorProvider(palette.header),
                         fontWeight = FontWeight.Bold,
                     ),
                     maxLines = 1,
                 )
                 Text(
                     text = state.runtime.statusText,
-                    style = TextStyle(color = ColorProvider(Color(0xFF475569))),
+                    style = TextStyle(color = ColorProvider(palette.body)),
                     maxLines = 1,
                 )
 
@@ -122,7 +123,7 @@ class NewsWidget : GlanceAppWidget() {
                 if (showMetrics) {
                     Text(
                         text = "${allWidgetStories.size} stories - ${state.settings.widgetLayoutMode.name}",
-                        style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
+                        style = TextStyle(color = ColorProvider(palette.muted)),
                         maxLines = 1,
                     )
                 }
@@ -136,7 +137,7 @@ class NewsWidget : GlanceAppWidget() {
                         modifier = GlanceModifier
                             .fillMaxWidth()
                             .background(
-                                ColorProvider(if (isAlert) Color(0xFFFEE2E2) else Color(0xFFFFFFFF)),
+                                ColorProvider(if (isAlert) palette.alertCard else palette.card),
                             )
                             .cornerRadius(8.dp)
                             .padding(8.dp),
@@ -148,6 +149,7 @@ class NewsWidget : GlanceAppWidget() {
                                 summary = story.summary,
                                 isAlert = isAlert,
                                 showSummary = showSummary,
+                                palette = palette,
                             )
                         } else {
                             Row(verticalAlignment = Alignment.Top) {
@@ -166,6 +168,7 @@ class NewsWidget : GlanceAppWidget() {
                                     summary = story.summary,
                                     isAlert = isAlert,
                                     showSummary = showSummary,
+                                    palette = palette,
                                 )
                             }
                         }
@@ -209,7 +212,7 @@ class NewsWidget : GlanceAppWidget() {
                         )
                         Text(
                             text = "${stackIndex + 1}/${allWidgetStories.size}",
-                            style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
+                            style = TextStyle(color = ColorProvider(palette.muted)),
                             maxLines = 1,
                         )
                         WidgetIconButton(
@@ -223,7 +226,7 @@ class NewsWidget : GlanceAppWidget() {
                 if (allWidgetStories.isEmpty()) {
                     Text(
                         text = "No visible stories",
-                        style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
+                        style = TextStyle(color = ColorProvider(palette.muted)),
                     )
                 }
             }
@@ -238,30 +241,76 @@ private fun StoryTextBlock(
     summary: String,
     isAlert: Boolean,
     showSummary: Boolean,
+    palette: WidgetPalette,
 ) {
     Column(modifier = GlanceModifier.fillMaxWidth()) {
         Text(
             text = title,
             style = TextStyle(
-                color = ColorProvider(if (isAlert) Color(0xFF7F1D1D) else Color(0xFF0F172A)),
+                color = ColorProvider(if (isAlert) palette.alertTitle else palette.storyTitle),
                 fontWeight = FontWeight.Bold,
             ),
             maxLines = 2,
         )
         Text(
             text = sourceLine,
-            style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
+            style = TextStyle(color = ColorProvider(palette.muted)),
             maxLines = 1,
         )
         if (showSummary) {
             Text(
                 text = summary,
-                style = TextStyle(color = ColorProvider(Color(0xFF334155))),
+                style = TextStyle(color = ColorProvider(palette.body)),
                 maxLines = 2,
             )
         }
     }
 }
+
+private data class WidgetPalette(
+    val background: Color,
+    val card: Color,
+    val alertCard: Color,
+    val header: Color,
+    val storyTitle: Color,
+    val alertTitle: Color,
+    val body: Color,
+    val muted: Color,
+)
+
+private fun widgetPalette(
+    themeMode: WidgetThemeMode,
+    backgroundMode: WidgetBackgroundMode,
+): WidgetPalette =
+    when (themeMode) {
+        WidgetThemeMode.Light -> WidgetPalette(
+            background = when (backgroundMode) {
+                WidgetBackgroundMode.Solid -> Color(0xFFF8FAFC)
+                WidgetBackgroundMode.Transparent -> Color(0xDDF8FAFC)
+            },
+            card = Color(0xFFFFFFFF),
+            alertCard = Color(0xFFFEE2E2),
+            header = Color(0xFF0F172A),
+            storyTitle = Color(0xFF0F172A),
+            alertTitle = Color(0xFF7F1D1D),
+            body = Color(0xFF334155),
+            muted = Color(0xFF64748B),
+        )
+
+        WidgetThemeMode.Dark -> WidgetPalette(
+            background = when (backgroundMode) {
+                WidgetBackgroundMode.Solid -> Color(0xFF07111F)
+                WidgetBackgroundMode.Transparent -> Color(0xDD07111F)
+            },
+            card = Color(0xEE0B2035),
+            alertCard = Color(0xEE3B1724),
+            header = Color(0xFFBDEBFF),
+            storyTitle = Color(0xFF22D3EE),
+            alertTitle = Color(0xFFFCA5A5),
+            body = Color(0xFFE2E8F0),
+            muted = Color(0xFF93A4B8),
+        )
+    }
 
 class NewsWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = NewsWidget()

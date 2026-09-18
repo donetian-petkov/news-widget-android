@@ -29,12 +29,18 @@ enum class WidgetBackgroundMode {
     Transparent,
 }
 
+enum class WidgetThemeMode {
+    Light,
+    Dark,
+}
+
 data class WidgetPreset(
     val id: String,
     val name: String,
     val feedSourceId: String = WIDGET_ALL_FEEDS,
     val layoutMode: WidgetLayoutMode = WidgetLayoutMode.Column,
     val backgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.Solid,
+    val themeMode: WidgetThemeMode = WidgetThemeMode.Light,
 )
 
 data class RuntimeSettings(
@@ -49,6 +55,7 @@ data class RuntimeSettings(
     val widgetFeedSourceId: String = WIDGET_ALL_FEEDS,
     val widgetLayoutMode: WidgetLayoutMode = WidgetLayoutMode.Column,
     val widgetBackgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.Solid,
+    val widgetThemeMode: WidgetThemeMode = WidgetThemeMode.Light,
     val widgetStackIndex: Int = 0,
     val widgetPresets: List<WidgetPreset> = emptyList(),
 )

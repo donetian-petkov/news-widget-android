@@ -64,6 +64,7 @@ class RuntimePreferencesCodecTest {
                 feedSourceId = "bbc-world",
                 layoutMode = WidgetLayoutMode.Stack,
                 backgroundMode = WidgetBackgroundMode.Transparent,
+                themeMode = WidgetThemeMode.Dark,
             ),
         )
 

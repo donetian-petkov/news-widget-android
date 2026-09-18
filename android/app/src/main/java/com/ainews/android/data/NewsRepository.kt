@@ -213,6 +213,7 @@ object NewsRepository {
                 ?: WIDGET_ALL_FEEDS,
             widgetLayoutMode = settings.widgetLayoutMode,
             widgetBackgroundMode = settings.widgetBackgroundMode,
+            widgetThemeMode = settings.widgetThemeMode,
             widgetStackIndex = settings.widgetStackIndex.coerceAtLeast(0),
             widgetPresets = settings.widgetPresets
                 .filter { it.name.isNotBlank() }

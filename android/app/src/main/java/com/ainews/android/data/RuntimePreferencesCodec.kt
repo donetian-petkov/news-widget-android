@@ -84,7 +84,8 @@ object RuntimePreferencesCodec {
                     .put("name", preset.name)
                     .put("feedSourceId", preset.feedSourceId)
                     .put("layoutMode", preset.layoutMode.name)
-                    .put("backgroundMode", preset.backgroundMode.name),
+                    .put("backgroundMode", preset.backgroundMode.name)
+                    .put("themeMode", preset.themeMode.name),
             )
         }
         return array.toString()
@@ -109,6 +110,9 @@ object RuntimePreferencesCodec {
                             backgroundMode = item.optString("backgroundMode")
                                 .let { runCatching { WidgetBackgroundMode.valueOf(it) }.getOrNull() }
                                 ?: WidgetBackgroundMode.Solid,
+                            themeMode = item.optString("themeMode")
+                                .let { runCatching { WidgetThemeMode.valueOf(it) }.getOrNull() }
+                                ?: WidgetThemeMode.Light,
                         ),
                     )
                 }
