@@ -1,0 +1,31 @@
+# Gradle / Android
+.gradle/
+build/
+*/build/
+local.properties
+*.iml
+.idea/
+
+# Kotlin / Java
+*.class
+out/
+
+# Android generated outputs
+captures/
+*.apk
+*.ap_
+*.aab
+*.dex
+
+# Keystores and credentials
+*.jks
+*.keystore
+*.p12
+*.pem
+secrets.properties
+
+# OS/editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
