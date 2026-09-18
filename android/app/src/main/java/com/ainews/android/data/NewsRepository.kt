@@ -174,6 +174,7 @@ object NewsRepository {
                 RefreshNewsWorker.cancel(appContext)
                 AutoPowerOffWorker.cancel(appContext)
             }
+            sendRemoteRuntimeIfNeeded(current.settings, enabled)
             current.copy(
                 runtime = runtime,
                 message = if (enabled) "Runtime on" else "Runtime off",
@@ -429,6 +430,9 @@ object NewsRepository {
                 lastFetchStatus = FetchStatus.Fetching,
             )
             persistRuntime(runtime)
+            if (current.settings.backendMode == BackendMode.RemoteBackend) {
+                sendRemoteRefreshIfNeeded(current.settings)
+            }
             current.copy(
                 runtime = runtime,
                 message = "Fetching latest stories",
@@ -506,6 +510,7 @@ object NewsRepository {
             repositoryScope.launch {
                 storyDao.hideStory(storyId, System.currentTimeMillis())
             }
+            sendRemoteHideIfNeeded(current.settings, storyId)
             current.copy(
                 selectedStoryId = nextSelected,
                 stories = current.stories.map { story ->
@@ -623,6 +628,27 @@ object NewsRepository {
     private fun persistFeedSources(feedSources: List<FeedSource>) {
         repositoryScope.launch {
             runtimePreferences.saveFeedSources(feedSources)
+        }
+    }
+
+    private fun sendRemoteRuntimeIfNeeded(settings: RuntimeSettings, enabled: Boolean) {
+        if (settings.backendMode != BackendMode.RemoteBackend) return
+        repositoryScope.launch {
+            runCatching { remoteBackendClient.setRuntime(settings.remoteBackendUrl, enabled) }
+        }
+    }
+
+    private fun sendRemoteRefreshIfNeeded(settings: RuntimeSettings) {
+        if (settings.backendMode != BackendMode.RemoteBackend) return
+        repositoryScope.launch {
+            runCatching { remoteBackendClient.requestRefresh(settings.remoteBackendUrl) }
+        }
+    }
+
+    private fun sendRemoteHideIfNeeded(settings: RuntimeSettings, storyId: String) {
+        if (settings.backendMode != BackendMode.RemoteBackend) return
+        repositoryScope.launch {
+            runCatching { remoteBackendClient.hideStory(settings.remoteBackendUrl, storyId) }
         }
     }
 }

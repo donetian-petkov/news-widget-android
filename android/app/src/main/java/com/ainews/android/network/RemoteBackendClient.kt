@@ -22,6 +22,37 @@ class RemoteBackendClient {
         }.orEmpty()
     }
 
+    fun setRuntime(baseUrl: String, enabled: Boolean) {
+        postControl(
+            baseUrl = baseUrl,
+            action = "runtime",
+            body = JSONObject()
+                .put("action", "runtime")
+                .put("runtimeEnabled", enabled),
+            actionPaths = listOf("runtime", "power"),
+        )
+    }
+
+    fun requestRefresh(baseUrl: String) {
+        postControl(
+            baseUrl = baseUrl,
+            action = "refresh",
+            body = JSONObject().put("action", "refresh"),
+            actionPaths = listOf("refresh"),
+        )
+    }
+
+    fun hideStory(baseUrl: String, storyId: String) {
+        postControl(
+            baseUrl = baseUrl,
+            action = "hide",
+            body = JSONObject()
+                .put("action", "hide")
+                .put("storyId", storyId),
+            actionPaths = listOf("stories/$storyId/hide", "hide"),
+        )
+    }
+
     private fun fetchJson(url: String): String {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 10_000
@@ -31,6 +62,51 @@ class RemoteBackendClient {
             setRequestProperty("User-Agent", "AI-News-Android/0.1")
         }
         return connection.inputStream.bufferedReader().use { it.readText() }
+    }
+
+    private fun postControl(
+        baseUrl: String,
+        action: String,
+        body: JSONObject,
+        actionPaths: List<String>,
+    ) {
+        val trimmed = baseUrl.trim().trimEnd('/')
+        if (trimmed.isBlank()) return
+
+        val candidates = buildList {
+            add("$trimmed/api/control")
+            add("$trimmed/control")
+            add("$trimmed/api/$action")
+            add("$trimmed/$action")
+            actionPaths.forEach { path ->
+                add("$trimmed/api/$path")
+                add("$trimmed/$path")
+            }
+        }.distinct()
+
+        candidates.firstOrNull { url ->
+            runCatching {
+                postJson(url, body)
+                true
+            }.getOrDefault(false)
+        }
+    }
+
+    private fun postJson(url: String, body: JSONObject) {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 8_000
+            readTimeout = 10_000
+            requestMethod = "POST"
+            doOutput = true
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("User-Agent", "AI-News-Android/0.1")
+        }
+        connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        val code = connection.responseCode
+        if (code !in 200..299) {
+            error("Remote backend returned HTTP $code")
+        }
     }
 
     private fun String.toStories(): List<NewsStory> {
