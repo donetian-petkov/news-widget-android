@@ -37,6 +37,19 @@ class WidgetSettingsTest {
         assertEquals(listOf("newer", "older"), state.widgetStories.map { it.id })
     }
 
+    @Test
+    fun widgetStackIndexWrapsToAvailableStories() {
+        val state = NewsUiState(
+            settings = RuntimeSettings(widgetStackIndex = 3),
+            stories = listOf(
+                story(id = "newer", source = "AI Policy", publishedAt = 20),
+                story(id = "older", source = "BBC World", publishedAt = 10),
+            ),
+        )
+
+        assertEquals(1, state.widgetStackIndex)
+    }
+
     private fun story(
         id: String,
         source: String,

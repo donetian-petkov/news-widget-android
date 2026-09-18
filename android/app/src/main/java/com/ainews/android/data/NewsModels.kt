@@ -41,6 +41,7 @@ data class RuntimeSettings(
     val widgetFeedSourceId: String = WIDGET_ALL_FEEDS,
     val widgetLayoutMode: WidgetLayoutMode = WidgetLayoutMode.Column,
     val widgetBackgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.Solid,
+    val widgetStackIndex: Int = 0,
 )
 
 data class RuntimeState(
@@ -163,6 +164,13 @@ data class NewsUiState(
             return prioritizedStories.filter { story ->
                 selectedFeed == null || story.source == selectedFeed.title
             }
+        }
+
+    val widgetStackIndex: Int
+        get() {
+            val storyCount = widgetStories.size
+            if (storyCount == 0) return 0
+            return ((settings.widgetStackIndex % storyCount) + storyCount) % storyCount
         }
 }
 

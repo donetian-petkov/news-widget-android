@@ -972,13 +972,23 @@ private fun SettingsScreen(
                     TopicChip(
                         text = "All feeds",
                         selected = draft.widgetFeedSourceId == WIDGET_ALL_FEEDS,
-                        onClick = { draft = draft.copy(widgetFeedSourceId = WIDGET_ALL_FEEDS) },
+                        onClick = {
+                            draft = draft.copy(
+                                widgetFeedSourceId = WIDGET_ALL_FEEDS,
+                                widgetStackIndex = 0,
+                            )
+                        },
                     )
                     feedSources.forEach { source ->
                         TopicChip(
                             text = source.title,
                             selected = draft.widgetFeedSourceId == source.id,
-                            onClick = { draft = draft.copy(widgetFeedSourceId = source.id) },
+                            onClick = {
+                                draft = draft.copy(
+                                    widgetFeedSourceId = source.id,
+                                    widgetStackIndex = 0,
+                                )
+                            },
                         )
                     }
                 }

@@ -212,6 +212,7 @@ object NewsRepository {
                 ?: WIDGET_ALL_FEEDS,
             widgetLayoutMode = settings.widgetLayoutMode,
             widgetBackgroundMode = settings.widgetBackgroundMode,
+            widgetStackIndex = settings.widgetStackIndex.coerceAtLeast(0),
         )
         _state.update { current ->
             persistSettings(normalized)
@@ -222,6 +223,20 @@ object NewsRepository {
             current.copy(
                 settings = normalized,
                 message = "Settings saved",
+            )
+        }
+    }
+
+    fun moveWidgetStack(offset: Int) {
+        _state.update { current ->
+            val storyCount = current.widgetStories.size
+            if (storyCount == 0) return@update current
+            val nextIndex = ((current.widgetStackIndex + offset) % storyCount + storyCount) % storyCount
+            val nextSettings = current.settings.copy(widgetStackIndex = nextIndex)
+            persistSettings(nextSettings)
+            current.copy(
+                settings = nextSettings,
+                message = "Widget stack ${nextIndex + 1}/$storyCount",
             )
         }
     }

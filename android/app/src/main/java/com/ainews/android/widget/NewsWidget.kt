@@ -68,8 +68,13 @@ class NewsWidget : GlanceAppWidget() {
             val showMetrics = size.width >= 220.dp
             val showThumbnails = size.width >= 260.dp && size.height >= 170.dp
             val stackMode = state.settings.widgetLayoutMode == WidgetLayoutMode.Stack
-            val stories = state.widgetStories.take(storyLimit)
-            val renderedStories = if (stackMode) stories.take(1) else stories
+            val allWidgetStories = state.widgetStories
+            val stackIndex = state.widgetStackIndex
+            val stories = if (stackMode) {
+                allWidgetStories.drop(stackIndex).take(1)
+            } else {
+                allWidgetStories.take(storyLimit)
+            }
             val widgetBackground = when (state.settings.widgetBackgroundMode) {
                 WidgetBackgroundMode.Solid -> Color(0xFFF8FAFC)
                 WidgetBackgroundMode.Transparent -> Color(0xDDF8FAFC)
@@ -113,7 +118,7 @@ class NewsWidget : GlanceAppWidget() {
 
                 if (showMetrics) {
                     Text(
-                        text = "${state.widgetStories.size} stories - ${state.settings.widgetLayoutMode.name}",
+                        text = "${allWidgetStories.size} stories - ${state.settings.widgetLayoutMode.name}",
                         style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
                         maxLines = 1,
                     )
@@ -121,7 +126,7 @@ class NewsWidget : GlanceAppWidget() {
 
                 Spacer(GlanceModifier.height(7.dp))
 
-                renderedStories.forEach { story ->
+                stories.forEach { story ->
                     val isAlert = state.alertMatches.any { it.storyId == story.id }
                     val thumbnail = cachedImages[story.id].takeIf { showThumbnails }
                     Column(
@@ -189,15 +194,25 @@ class NewsWidget : GlanceAppWidget() {
                     Spacer(GlanceModifier.height(6.dp))
                 }
 
-                if (stackMode && stories.size > 1 && showMetrics) {
-                    Text(
-                        text = "1/${stories.size} - newest story",
-                        style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
-                        maxLines = 1,
-                    )
+                if (stackMode && allWidgetStories.size > 1 && showMetrics) {
+                    Row(horizontalAlignment = Alignment.CenterHorizontally) {
+                        WidgetButton(
+                            text = "↑",
+                            action = actionRunCallback<PreviousStackStoryAction>(),
+                        )
+                        Text(
+                            text = "${stackIndex + 1}/${allWidgetStories.size}",
+                            style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
+                            maxLines = 1,
+                        )
+                        WidgetButton(
+                            text = "↓",
+                            action = actionRunCallback<NextStackStoryAction>(),
+                        )
+                    }
                 }
 
-                if (stories.isEmpty()) {
+                if (allWidgetStories.isEmpty()) {
                     Text(
                         text = "No visible stories",
                         style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
@@ -262,6 +277,28 @@ class RefreshAction : ActionCallback {
         parameters: ActionParameters,
     ) {
         NewsRepository.refreshNow()
+        NewsWidget().updateAll(context)
+    }
+}
+
+class PreviousStackStoryAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        NewsRepository.moveWidgetStack(-1)
+        NewsWidget().updateAll(context)
+    }
+}
+
+class NextStackStoryAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        NewsRepository.moveWidgetStack(1)
         NewsWidget().updateAll(context)
     }
 }
