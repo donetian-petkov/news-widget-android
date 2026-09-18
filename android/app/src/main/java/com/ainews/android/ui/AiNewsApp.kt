@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,8 +38,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -122,9 +128,11 @@ fun AiNewsApp() {
     val scope = rememberCoroutineScope()
     val selectedStory = state.selectedStory
     var screen by remember { mutableStateOf(AppScreen.Feed) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
 
-    BackHandler(enabled = screen != AppScreen.Feed || selectedStory != null) {
+    BackHandler(enabled = drawerState.isOpen || screen != AppScreen.Feed || selectedStory != null) {
         when {
+            drawerState.isOpen -> scope.launch { drawerState.close() }
             selectedStory != null -> NewsRepository.selectStory(null)
             else -> screen = AppScreen.Feed
         }
@@ -155,6 +163,20 @@ fun AiNewsApp() {
     }
 
     MaterialTheme(colorScheme = colorScheme) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            gesturesEnabled = screen == AppScreen.Feed && selectedStory == null,
+            drawerContent = {
+                AppDrawer(
+                    state = state,
+                    current = screen,
+                    onNavigate = { destination ->
+                        screen = destination
+                        scope.launch { drawerState.close() }
+                    },
+                )
+            },
+        ) {
         Surface(
             modifier = Modifier
                 .fillMaxSize()
@@ -376,9 +398,11 @@ fun AiNewsApp() {
                         },
                         onToggleSaveStory = NewsRepository::toggleSaved,
                         onShareStory = { shareStory(context, it) },
+                        onOpenDrawer = { scope.launch { drawerState.open() } },
                     )
                 }
             }
+        }
         }
     }
 }
@@ -418,6 +442,7 @@ private fun NewsFeed(
     onTogglePinStory: (String) -> Unit,
     onToggleSaveStory: (String) -> Unit,
     onShareStory: (NewsStory) -> Unit,
+    onOpenDrawer: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -444,6 +469,7 @@ private fun NewsFeed(
                 onSelectTopic = onSelectTopic,
                 onSelectViewMode = onSelectViewMode,
                 onOpenScreen = onOpenScreen,
+                onOpenDrawer = onOpenDrawer,
                 onDismissOnboarding = onDismissOnboarding,
                 onUseLocalAi = onUseLocalAi,
             )
@@ -506,7 +532,7 @@ private fun NewsFeed(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Header(
     state: NewsUiState,
@@ -520,6 +546,7 @@ private fun Header(
     onSelectTopic: (String?) -> Unit,
     onSelectViewMode: (FeedViewMode) -> Unit,
     onOpenScreen: (AppScreen) -> Unit,
+    onOpenDrawer: () -> Unit,
     onDismissOnboarding: () -> Unit,
     onUseLocalAi: () -> Unit,
 ) {
@@ -536,12 +563,22 @@ private fun Header(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
+            IconButton(onClick = onOpenDrawer) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_menu),
+                    contentDescription = "Open navigation",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+
             Column(Modifier.weight(1f)) {
                 Text(
                     text = state.feedTitle,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = if (state.settings.aiConfigured) {
@@ -578,126 +615,58 @@ private fun Header(
                     },
                 )
             }
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_more_vert),
-                    contentDescription = "More",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
 
-        if (menuOpen) {
-            ModalBottomSheet(onDismissRequest = { menuOpen = false }) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(bottom = 28.dp),
-                ) {
-                    SheetSection("Reading")
-                    SheetItem("Library", "${state.savedStories.size} saved") {
-                        menuOpen = false
-                        onOpenScreen(AppScreen.Library)
-                    }
-                    SheetItem("Filtered feed", "${state.settings.keywords.size} keywords") {
-                        menuOpen = false
-                        onOpenScreen(AppScreen.Keywords)
-                    }
-                    SheetItem("Hidden stories", "$hiddenCount hidden") {
-                        menuOpen = false
-                        onOpenScreen(AppScreen.Hidden)
-                    }
-                    if (hiddenCount > 0) {
-                        SheetItem("Restore all hidden") {
-                            menuOpen = false
-                            onRestoreHidden()
-                        }
-                    }
-
-                    SheetSection("Feeds")
-                    SheetItem("Feeds", "${state.feedSources.size} sources") {
-                        menuOpen = false
-                        onOpenScreen(AppScreen.Feeds)
-                    }
-                    SheetItem("Source health") {
-                        menuOpen = false
-                        onOpenScreen(AppScreen.Sources)
-                    }
-                    SheetItem("Fetch history") {
-                        menuOpen = false
-                        onOpenScreen(AppScreen.History)
-                    }
-
-                    SheetSection("Alerts and automation")
-                    SheetItem("Monitors", "${state.monitors.size} sentences") {
-                        menuOpen = false
-                        onOpenScreen(AppScreen.Monitors)
-                    }
-                    SheetItem("Scan monitors now") {
-                        menuOpen = false
-                        onScanMonitors()
-                    }
-                    SheetItem("Digests", "${state.digests.size} saved") {
-                        menuOpen = false
-                        onOpenScreen(AppScreen.Digests)
-                    }
-                    SheetItem("Schedules", "${state.schedules.count { it.enabled }} running") {
-                        menuOpen = false
-                        onOpenScreen(AppScreen.Schedules)
-                    }
-
-                    SheetSection("AI")
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_more_vert),
+                        contentDescription = "More actions",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                // The kebab holds actions only; screens live in the navigation drawer.
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     if (aiConfigured) {
-                        SheetItem(
-                            title = if (state.runtime.aiEnabled) "Pause AI" else "Resume AI",
-                        ) {
-                            menuOpen = false
-                            onAi()
-                        }
-                        SheetItem(
-                            title = "Fill missing AI",
-                            subtitle = "${state.pendingAiCount} stories waiting",
+                        DropdownMenuItem(
+                            text = { Text(if (state.runtime.aiEnabled) "Pause AI" else "Resume AI") },
+                            onClick = { menuOpen = false; onAi() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Fill missing AI (${state.pendingAiCount})") },
                             enabled = aiReady,
-                        ) {
-                            menuOpen = false
-                            onEnrich()
-                        }
-                        SheetItem("AI usage", "${state.usageRecords.size} requests") {
-                            menuOpen = false
-                            onOpenScreen(AppScreen.Usage)
-                        }
+                            onClick = { menuOpen = false; onEnrich() },
+                        )
                     } else {
-                        SheetItem("Set up AI", "No provider configured yet") {
-                            menuOpen = false
-                            onOpenScreen(AppScreen.Settings)
-                        }
+                        DropdownMenuItem(
+                            text = { Text("Set up AI") },
+                            onClick = { menuOpen = false; onOpenScreen(AppScreen.Settings) },
+                        )
                     }
-
-                    SheetSection("Runtime")
-                    SheetItem(
-                        title = "Power off after 1 hour",
+                    DropdownMenuItem(
+                        text = { Text("Scan monitors") },
+                        onClick = { menuOpen = false; onScanMonitors() },
+                    )
+                    if (hiddenCount > 0) {
+                        DropdownMenuItem(
+                            text = { Text("Restore $hiddenCount hidden") },
+                            onClick = { menuOpen = false; onRestoreHidden() },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Power off after 1 hour") },
                         enabled = state.runtime.runtimeEnabled,
-                    ) {
-                        menuOpen = false
-                        onSetTimeout(1)
-                    }
-                    SheetItem(
-                        title = "Power off after 4 hours",
+                        onClick = { menuOpen = false; onSetTimeout(1) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Power off after 4 hours") },
                         enabled = state.runtime.runtimeEnabled,
-                    ) {
-                        menuOpen = false
-                        onSetTimeout(4)
-                    }
+                        onClick = { menuOpen = false; onSetTimeout(4) },
+                    )
                     if (state.runtime.autoPowerOffAt != null) {
-                        SheetItem("Clear auto power-off") {
-                            menuOpen = false
-                            onSetTimeout(null)
-                        }
-                    }
-                    SheetItem("Settings") {
-                        menuOpen = false
-                        onOpenScreen(AppScreen.Settings)
+                        DropdownMenuItem(
+                            text = { Text("Clear auto power-off") },
+                            onClick = { menuOpen = false; onSetTimeout(null) },
+                        )
                     }
                 }
             }
@@ -805,6 +774,104 @@ private fun Header(
             }
         }
     }
+}
+
+@Composable
+private fun AppDrawer(
+    state: NewsUiState,
+    current: AppScreen,
+    onNavigate: (AppScreen) -> Unit,
+) {
+    ModalDrawerSheet {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 24.dp),
+        ) {
+            Text(
+                text = "AI News",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 28.dp, top = 24.dp, bottom = 4.dp),
+            )
+            Text(
+                text = state.runtime.statusText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 28.dp, bottom = 12.dp),
+            )
+
+            DrawerSection("Reading")
+            DrawerDestination("Top stories", AppScreen.Feed, current, onNavigate)
+            DrawerDestination("Library", AppScreen.Library, current, onNavigate, "${state.savedStories.size}")
+            DrawerDestination(
+                "Filtered feed",
+                AppScreen.Keywords,
+                current,
+                onNavigate,
+                "${state.settings.keywords.size}",
+            )
+            DrawerDestination(
+                "Hidden stories",
+                AppScreen.Hidden,
+                current,
+                onNavigate,
+                "${state.stories.count { it.isHidden }}",
+            )
+
+            DrawerSection("Feeds")
+            DrawerDestination("Feeds", AppScreen.Feeds, current, onNavigate, "${state.feedSources.size}")
+            DrawerDestination("Source health", AppScreen.Sources, current, onNavigate)
+            DrawerDestination("Fetch history", AppScreen.History, current, onNavigate)
+
+            DrawerSection("Alerts and automation")
+            DrawerDestination("Monitors", AppScreen.Monitors, current, onNavigate, "${state.monitors.size}")
+            DrawerDestination("Digests", AppScreen.Digests, current, onNavigate, "${state.digests.size}")
+            DrawerDestination(
+                "Schedules",
+                AppScreen.Schedules,
+                current,
+                onNavigate,
+                "${state.schedules.count { it.enabled }}",
+            )
+
+            DrawerSection("App")
+            if (state.settings.aiConfigured) {
+                DrawerDestination("AI usage", AppScreen.Usage, current, onNavigate)
+            }
+            DrawerDestination("Settings", AppScreen.Settings, current, onNavigate)
+        }
+    }
+}
+
+@Composable
+private fun DrawerSection(title: String) {
+    Text(
+        text = title.uppercase(Locale.getDefault()),
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 28.dp, end = 28.dp, top = 18.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun DrawerDestination(
+    label: String,
+    destination: AppScreen,
+    current: AppScreen,
+    onNavigate: (AppScreen) -> Unit,
+    badge: String? = null,
+) {
+    NavigationDrawerItem(
+        label = { Text(label) },
+        badge = badge?.takeIf { it != "0" }?.let { { Text(it) } },
+        selected = destination == current,
+        onClick = { onNavigate(destination) },
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+    )
 }
 
 @Composable
