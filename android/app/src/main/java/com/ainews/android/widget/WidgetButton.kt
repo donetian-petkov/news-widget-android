@@ -4,32 +4,34 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
 import androidx.glance.GlanceModifier
+import androidx.glance.Image
+import androidx.glance.ImageProvider
 import androidx.glance.action.Action
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.background
 import androidx.glance.layout.Box
 import androidx.glance.layout.padding
-import androidx.glance.text.Text
-import androidx.glance.text.TextStyle
+import androidx.glance.layout.size
 import androidx.glance.unit.ColorProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.ainews.android.MainActivity
 
 @androidx.compose.runtime.Composable
-fun WidgetButton(text: String, action: Action) {
+fun WidgetIconButton(iconRes: Int, contentDescription: String, action: Action) {
     Box(
         modifier = GlanceModifier
             .padding(end = 6.dp, bottom = 4.dp)
             .background(ColorProvider(Color(0xFFEDE9FE)))
             .cornerRadius(10.dp)
             .clickable(action)
-            .padding(horizontal = 9.dp, vertical = 5.dp),
+            .padding(6.dp),
     ) {
-        Text(
-            text = text,
-            style = TextStyle(color = ColorProvider(Color(0xFF5B21B6))),
+        Image(
+            provider = ImageProvider(iconRes),
+            contentDescription = contentDescription,
+            modifier = GlanceModifier.size(18.dp),
         )
     }
 }

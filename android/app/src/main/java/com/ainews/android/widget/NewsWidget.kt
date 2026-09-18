@@ -36,6 +36,7 @@ import androidx.glance.unit.ColorProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.ainews.android.MainActivity
+import com.ainews.android.R
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.WidgetBackgroundMode
 import com.ainews.android.data.WidgetLayoutMode
@@ -106,12 +107,14 @@ class NewsWidget : GlanceAppWidget() {
                 Row(
                     horizontalAlignment = Alignment.Start,
                 ) {
-                    WidgetButton(
-                        text = if (state.runtime.runtimeEnabled) "⏻" else "○",
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_power,
+                        contentDescription = if (state.runtime.runtimeEnabled) "Power off" else "Power on",
                         action = actionRunCallback<ToggleRuntimeAction>(),
                     )
-                    WidgetButton(
-                        text = "↻",
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_refresh,
+                        contentDescription = "Refresh",
                         action = actionRunCallback<RefreshAction>(),
                     )
                 }
@@ -168,21 +171,24 @@ class NewsWidget : GlanceAppWidget() {
                         }
                         if (showActions) {
                             Row(horizontalAlignment = Alignment.Start) {
-                                WidgetButton(
-                                    text = "↗",
+                                WidgetIconButton(
+                                    iconRes = R.drawable.ic_open,
+                                    contentDescription = "Open story",
                                     action = actionRunCallback<OpenStoryAction>(
                                         actionParametersOf(storyIdKey to story.id),
                                     ),
                                 )
-                                WidgetButton(
-                                    text = "⊘",
+                                WidgetIconButton(
+                                    iconRes = R.drawable.ic_hide,
+                                    contentDescription = "Hide story",
                                     action = actionRunCallback<HideStoryAction>(
                                         actionParametersOf(storyIdKey to story.id),
                                     ),
                                 )
                                 if (size.width >= 300.dp) {
-                                    WidgetButton(
-                                        text = "⇪",
+                                    WidgetIconButton(
+                                        iconRes = R.drawable.ic_share,
+                                        contentDescription = "Share story",
                                         action = actionRunCallback<ShareStoryAction>(
                                             actionParametersOf(storyIdKey to story.id),
                                         ),
@@ -196,8 +202,9 @@ class NewsWidget : GlanceAppWidget() {
 
                 if (stackMode && allWidgetStories.size > 1 && showMetrics) {
                     Row(horizontalAlignment = Alignment.CenterHorizontally) {
-                        WidgetButton(
-                            text = "↑",
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_arrow_up,
+                            contentDescription = "Previous story",
                             action = actionRunCallback<PreviousStackStoryAction>(),
                         )
                         Text(
@@ -205,8 +212,9 @@ class NewsWidget : GlanceAppWidget() {
                             style = TextStyle(color = ColorProvider(Color(0xFF64748B))),
                             maxLines = 1,
                         )
-                        WidgetButton(
-                            text = "↓",
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_arrow_down,
+                            contentDescription = "Next story",
                             action = actionRunCallback<NextStackStoryAction>(),
                         )
                     }

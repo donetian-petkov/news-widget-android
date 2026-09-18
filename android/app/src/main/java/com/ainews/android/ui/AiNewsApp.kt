@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -50,10 +51,12 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.glance.appwidget.updateAll
+import com.ainews.android.R
 import com.ainews.android.data.AiProvider
 import com.ainews.android.data.BackendMode
 import com.ainews.android.data.FeedSource
@@ -324,23 +327,38 @@ private fun Header(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Button(onClick = onPower) {
-                Text(if (state.runtime.runtimeEnabled) "⏻ Off" else "⏻ On")
+                Icon(
+                    painter = painterResource(R.drawable.ic_power),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(if (state.runtime.runtimeEnabled) "Off" else "On")
             }
-            OutlinedButton(onClick = onRefresh, enabled = state.runtime.runtimeEnabled) {
-                Text("↻")
-            }
+            HeaderIconButton(
+                iconRes = R.drawable.ic_refresh,
+                contentDescription = "Refresh",
+                enabled = state.runtime.runtimeEnabled,
+                onClick = onRefresh,
+            )
             OutlinedButton(onClick = onAi) {
                 Text(if (state.runtime.aiEnabled) "AI" else "AI off")
             }
-            OutlinedButton(onClick = onOpenSettings) {
-                Text("⚙")
-            }
-            OutlinedButton(onClick = onOpenMonitors) {
-                Text("◎")
-            }
-            OutlinedButton(onClick = onOpenFeeds) {
-                Text("▤")
-            }
+            HeaderIconButton(
+                iconRes = R.drawable.ic_settings,
+                contentDescription = "Settings",
+                onClick = onOpenSettings,
+            )
+            HeaderIconButton(
+                iconRes = R.drawable.ic_monitor,
+                contentDescription = "Monitors",
+                onClick = onOpenMonitors,
+            )
+            HeaderIconButton(
+                iconRes = R.drawable.ic_feeds,
+                contentDescription = "Feeds",
+                onClick = onOpenFeeds,
+            )
             OutlinedButton(onClick = onScanMonitors) {
                 Text("Scan")
             }
@@ -455,6 +473,22 @@ private fun Header(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HeaderIconButton(
+    iconRes: Int,
+    contentDescription: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    OutlinedButton(onClick = onClick, enabled = enabled) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = contentDescription,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 
