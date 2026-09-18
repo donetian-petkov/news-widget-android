@@ -71,6 +71,7 @@ import com.ainews.android.data.WidgetDensityMode
 import com.ainews.android.data.WidgetLayoutMode
 import com.ainews.android.data.WidgetPreset
 import com.ainews.android.data.WidgetThemeMode
+import com.ainews.android.data.WidgetTypographyMode
 import com.ainews.android.data.aiBudgetText
 import com.ainews.android.data.effectiveFeedSourceIds
 import com.ainews.android.data.effectiveWidgetFeedSourceIds
@@ -1114,6 +1115,24 @@ private fun SettingsScreen(
                 }
 
                 Text(
+                    text = "Type",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFF64748B),
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    WidgetTypographyMode.values().forEach { mode ->
+                        TopicChip(
+                            text = mode.name,
+                            selected = draft.widgetTypographyMode == mode,
+                            onClick = { draft = draft.copy(widgetTypographyMode = mode) },
+                        )
+                    }
+                }
+
+                Text(
                     text = "Saved views",
                     style = MaterialTheme.typography.labelMedium,
                     color = Color(0xFF64748B),
@@ -1137,6 +1156,7 @@ private fun SettingsScreen(
                                 backgroundMode = draft.widgetBackgroundMode,
                                 themeMode = draft.widgetThemeMode,
                                 densityMode = draft.widgetDensityMode,
+                                typographyMode = draft.widgetTypographyMode,
                             )
                             draft = draft.copy(widgetPresets = (draft.widgetPresets + preset).takeLast(12))
                             presetNameDraft = ""
@@ -1166,6 +1186,7 @@ private fun SettingsScreen(
                                     widgetBackgroundMode = preset.backgroundMode,
                                     widgetThemeMode = preset.themeMode,
                                     widgetDensityMode = preset.densityMode,
+                                    widgetTypographyMode = preset.typographyMode,
                                     widgetStackIndex = 0,
                                 )
                             },
@@ -1211,7 +1232,7 @@ private fun SavedWidgetPresetRow(
         Column(Modifier.weight(1f)) {
             Text(preset.name, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
             Text(
-                text = "$feedTitle - ${preset.layoutMode.name} - ${preset.backgroundMode.name} - ${preset.themeMode.name} - ${preset.densityMode.name}",
+                text = "$feedTitle - ${preset.layoutMode.name} - ${preset.backgroundMode.name} - ${preset.themeMode.name} - ${preset.densityMode.name} - ${preset.typographyMode.name}",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFF64748B),
             )

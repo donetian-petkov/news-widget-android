@@ -39,6 +39,11 @@ enum class WidgetDensityMode {
     Compact,
 }
 
+enum class WidgetTypographyMode {
+    Standard,
+    Large,
+}
+
 data class WidgetPreset(
     val id: String,
     val name: String,
@@ -48,6 +53,7 @@ data class WidgetPreset(
     val backgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.Solid,
     val themeMode: WidgetThemeMode = WidgetThemeMode.Light,
     val densityMode: WidgetDensityMode = WidgetDensityMode.Comfortable,
+    val typographyMode: WidgetTypographyMode = WidgetTypographyMode.Standard,
 )
 
 data class RuntimeSettings(
@@ -65,6 +71,7 @@ data class RuntimeSettings(
     val widgetBackgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.Solid,
     val widgetThemeMode: WidgetThemeMode = WidgetThemeMode.Light,
     val widgetDensityMode: WidgetDensityMode = WidgetDensityMode.Comfortable,
+    val widgetTypographyMode: WidgetTypographyMode = WidgetTypographyMode.Standard,
     val widgetStackIndex: Int = 0,
     val widgetPresets: List<WidgetPreset> = emptyList(),
 )

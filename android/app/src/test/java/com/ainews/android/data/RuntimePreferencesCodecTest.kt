@@ -67,6 +67,7 @@ class RuntimePreferencesCodecTest {
                 backgroundMode = WidgetBackgroundMode.Transparent,
                 themeMode = WidgetThemeMode.Dark,
                 densityMode = WidgetDensityMode.Compact,
+                typographyMode = WidgetTypographyMode.Large,
             ),
         )
 

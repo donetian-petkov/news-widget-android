@@ -37,7 +37,9 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ainews.android.MainActivity
 import com.ainews.android.R
 import com.ainews.android.data.FetchStatus
@@ -46,6 +48,7 @@ import com.ainews.android.data.WidgetBackgroundMode
 import com.ainews.android.data.WidgetDensityMode
 import com.ainews.android.data.WidgetLayoutMode
 import com.ainews.android.data.WidgetThemeMode
+import com.ainews.android.data.WidgetTypographyMode
 import com.ainews.android.data.effectiveFeedSourceIds
 import com.ainews.android.data.effectiveWidgetFeedSourceIds
 import com.ainews.android.network.ImageDiskCache
@@ -77,6 +80,7 @@ class NewsWidget : GlanceAppWidget() {
                 widgetBackgroundMode = preset?.backgroundMode ?: state.settings.widgetBackgroundMode,
                 widgetThemeMode = preset?.themeMode ?: state.settings.widgetThemeMode,
                 widgetDensityMode = preset?.densityMode ?: state.settings.widgetDensityMode,
+                widgetTypographyMode = preset?.typographyMode ?: state.settings.widgetTypographyMode,
                 widgetStackIndex = instancePreferences.stackIndex(appWidgetId),
             )
             val selectedFeedIds = settings.effectiveWidgetFeedSourceIds().toSet()
@@ -92,6 +96,7 @@ class NewsWidget : GlanceAppWidget() {
             }
             val size = LocalSize.current
             val metrics = widgetMetrics(settings.widgetDensityMode)
+            val type = widgetTypography(settings.widgetTypographyMode)
             val baseStoryLimit = when {
                 size.width < 180.dp || size.height < 130.dp -> 1
                 size.height < 220.dp -> 2
@@ -128,6 +133,7 @@ class NewsWidget : GlanceAppWidget() {
                     style = TextStyle(
                         color = ColorProvider(palette.header),
                         fontWeight = FontWeight.Bold,
+                        fontSize = type.header,
                     ),
                     maxLines = 1,
                 )
@@ -143,6 +149,7 @@ class NewsWidget : GlanceAppWidget() {
                         ),
                         healthy = state.runtime.runtimeEnabled && state.runtime.lastFetchStatus != FetchStatus.Failed,
                         palette = palette,
+                        type = type,
                     )
                     WidgetIconButton(
                         iconRes = R.drawable.ic_power,
@@ -158,8 +165,11 @@ class NewsWidget : GlanceAppWidget() {
 
                 if (showMetrics) {
                     Text(
-                        text = "${allWidgetStories.size} stories · ${settings.widgetLayoutMode.name} · ${settings.widgetDensityMode.name}",
-                        style = TextStyle(color = ColorProvider(palette.muted)),
+                        text = "${allWidgetStories.size} stories · ${settings.widgetLayoutMode.name} · ${settings.widgetDensityMode.name} · ${settings.widgetTypographyMode.name}",
+                        style = TextStyle(
+                            color = ColorProvider(palette.muted),
+                            fontSize = type.meta,
+                        ),
                         maxLines = 1,
                     )
                 }
@@ -186,6 +196,7 @@ class NewsWidget : GlanceAppWidget() {
                                 isAlert = isAlert,
                                 showSummary = showSummary,
                                 palette = palette,
+                                type = type,
                             )
                         } else {
                             Row(verticalAlignment = Alignment.Top) {
@@ -205,6 +216,7 @@ class NewsWidget : GlanceAppWidget() {
                                     isAlert = isAlert,
                                     showSummary = showSummary,
                                     palette = palette,
+                                    type = type,
                                 )
                             }
                         }
@@ -248,7 +260,10 @@ class NewsWidget : GlanceAppWidget() {
                         )
                         Text(
                             text = "${stackIndex + 1}/${allWidgetStories.size}",
-                            style = TextStyle(color = ColorProvider(palette.muted)),
+                            style = TextStyle(
+                                color = ColorProvider(palette.muted),
+                                fontSize = type.meta,
+                            ),
                             maxLines = 1,
                         )
                         WidgetIconButton(
@@ -262,7 +277,10 @@ class NewsWidget : GlanceAppWidget() {
                 if (allWidgetStories.isEmpty()) {
                     Text(
                         text = "No visible stories",
-                        style = TextStyle(color = ColorProvider(palette.muted)),
+                        style = TextStyle(
+                            color = ColorProvider(palette.muted),
+                            fontSize = type.meta,
+                        ),
                     )
                 }
             }
@@ -281,6 +299,7 @@ private fun StatusPill(
     text: String,
     healthy: Boolean,
     palette: WidgetPalette,
+    type: WidgetTypography,
 ) {
     Box(
         modifier = GlanceModifier
@@ -294,6 +313,7 @@ private fun StatusPill(
             style = TextStyle(
                 color = ColorProvider(if (healthy) palette.statusText else palette.warningText),
                 fontWeight = FontWeight.Bold,
+                fontSize = type.meta,
             ),
             maxLines = 1,
         )
@@ -308,6 +328,7 @@ private fun StoryTextBlock(
     isAlert: Boolean,
     showSummary: Boolean,
     palette: WidgetPalette,
+    type: WidgetTypography,
 ) {
     Column(modifier = GlanceModifier.fillMaxWidth()) {
         Text(
@@ -315,18 +336,25 @@ private fun StoryTextBlock(
             style = TextStyle(
                 color = ColorProvider(if (isAlert) palette.alertTitle else palette.storyTitle),
                 fontWeight = FontWeight.Bold,
+                fontSize = type.title,
             ),
             maxLines = 2,
         )
         Text(
             text = sourceLine,
-            style = TextStyle(color = ColorProvider(palette.muted)),
+            style = TextStyle(
+                color = ColorProvider(palette.muted),
+                fontSize = type.meta,
+            ),
             maxLines = 1,
         )
         if (showSummary) {
             Text(
                 text = summary,
-                style = TextStyle(color = ColorProvider(palette.body)),
+                style = TextStyle(
+                    color = ColorProvider(palette.body),
+                    fontSize = type.body,
+                ),
                 maxLines = 2,
             )
         }
@@ -359,6 +387,13 @@ private data class WidgetMetrics(
     val extraStoryCapacity: Int,
 )
 
+private data class WidgetTypography(
+    val header: TextUnit,
+    val title: TextUnit,
+    val body: TextUnit,
+    val meta: TextUnit,
+)
+
 private fun widgetMetrics(densityMode: WidgetDensityMode): WidgetMetrics =
     when (densityMode) {
         WidgetDensityMode.Comfortable -> WidgetMetrics(
@@ -381,6 +416,23 @@ private fun widgetMetrics(densityMode: WidgetDensityMode): WidgetMetrics =
             thumbnailGap = 6.dp,
             summaryHeightThreshold = 260.dp,
             extraStoryCapacity = 1,
+        )
+    }
+
+private fun widgetTypography(typographyMode: WidgetTypographyMode): WidgetTypography =
+    when (typographyMode) {
+        WidgetTypographyMode.Standard -> WidgetTypography(
+            header = 15.sp,
+            title = 15.sp,
+            body = 13.sp,
+            meta = 12.sp,
+        )
+
+        WidgetTypographyMode.Large -> WidgetTypography(
+            header = 17.sp,
+            title = 17.sp,
+            body = 15.sp,
+            meta = 13.sp,
         )
     }
 

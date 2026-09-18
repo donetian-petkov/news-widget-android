@@ -104,7 +104,8 @@ object RuntimePreferencesCodec {
                     .put("layoutMode", preset.layoutMode.name)
                     .put("backgroundMode", preset.backgroundMode.name)
                     .put("themeMode", preset.themeMode.name)
-                    .put("densityMode", preset.densityMode.name),
+                    .put("densityMode", preset.densityMode.name)
+                    .put("typographyMode", preset.typographyMode.name),
             )
         }
         return array.toString()
@@ -145,6 +146,9 @@ object RuntimePreferencesCodec {
                             densityMode = item.optString("densityMode")
                                 .let { runCatching { WidgetDensityMode.valueOf(it) }.getOrNull() }
                                 ?: WidgetDensityMode.Comfortable,
+                            typographyMode = item.optString("typographyMode")
+                                .let { runCatching { WidgetTypographyMode.valueOf(it) }.getOrNull() }
+                                ?: WidgetTypographyMode.Standard,
                         ),
                     )
                 }
