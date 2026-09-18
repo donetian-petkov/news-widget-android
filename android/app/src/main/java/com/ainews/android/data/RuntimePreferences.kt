@@ -45,6 +45,10 @@ class RuntimePreferences(
                 providerKeySaved = prefs[Keys.providerKeySaved] ?: false,
                 onboardingDismissed = prefs[Keys.onboardingDismissed] ?: false,
                 widgetFeedSourceId = prefs[Keys.widgetFeedSourceId] ?: WIDGET_ALL_FEEDS,
+                widgetFeedSourceIds = prefs[Keys.widgetFeedSourceIds]
+                    ?.let(RuntimePreferencesCodec::stringListFromJson)
+                    ?: listOf(prefs[Keys.widgetFeedSourceId] ?: WIDGET_ALL_FEEDS)
+                        .filterNot { it == WIDGET_ALL_FEEDS },
                 widgetLayoutMode = prefs[Keys.widgetLayoutMode]
                     ?.let { runCatching { WidgetLayoutMode.valueOf(it) }.getOrNull() }
                     ?: WidgetLayoutMode.Column,
@@ -108,6 +112,7 @@ class RuntimePreferences(
             prefs[Keys.providerKeySaved] = settings.providerKeySaved
             prefs[Keys.onboardingDismissed] = settings.onboardingDismissed
             prefs[Keys.widgetFeedSourceId] = settings.widgetFeedSourceId
+            prefs[Keys.widgetFeedSourceIds] = RuntimePreferencesCodec.stringListToJson(settings.widgetFeedSourceIds)
             prefs[Keys.widgetLayoutMode] = settings.widgetLayoutMode.name
             prefs[Keys.widgetBackgroundMode] = settings.widgetBackgroundMode.name
             prefs[Keys.widgetThemeMode] = settings.widgetThemeMode.name
@@ -150,6 +155,7 @@ class RuntimePreferences(
         val providerKeySaved = booleanPreferencesKey("provider_key_saved")
         val onboardingDismissed = booleanPreferencesKey("onboarding_dismissed")
         val widgetFeedSourceId = stringPreferencesKey("widget_feed_source_id")
+        val widgetFeedSourceIds = stringPreferencesKey("widget_feed_source_ids")
         val widgetLayoutMode = stringPreferencesKey("widget_layout_mode")
         val widgetBackgroundMode = stringPreferencesKey("widget_background_mode")
         val widgetThemeMode = stringPreferencesKey("widget_theme_mode")

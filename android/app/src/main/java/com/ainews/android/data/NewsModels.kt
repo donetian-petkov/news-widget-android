@@ -43,6 +43,7 @@ data class WidgetPreset(
     val id: String,
     val name: String,
     val feedSourceId: String = WIDGET_ALL_FEEDS,
+    val feedSourceIds: List<String> = emptyList(),
     val layoutMode: WidgetLayoutMode = WidgetLayoutMode.Column,
     val backgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.Solid,
     val themeMode: WidgetThemeMode = WidgetThemeMode.Light,
@@ -59,6 +60,7 @@ data class RuntimeSettings(
     val providerKeySaved: Boolean = false,
     val onboardingDismissed: Boolean = false,
     val widgetFeedSourceId: String = WIDGET_ALL_FEEDS,
+    val widgetFeedSourceIds: List<String> = emptyList(),
     val widgetLayoutMode: WidgetLayoutMode = WidgetLayoutMode.Column,
     val widgetBackgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.Solid,
     val widgetThemeMode: WidgetThemeMode = WidgetThemeMode.Light,
@@ -179,13 +181,26 @@ data class NewsUiState(
         get() = stories.firstOrNull { it.id == selectedStoryId }
 
     val widgetFeedTitle: String
-        get() = feedSources.firstOrNull { it.id == settings.widgetFeedSourceId }?.title ?: "All Feeds"
+        get() {
+            val selectedFeeds = widgetSelectedFeedSources
+            return when (selectedFeeds.size) {
+                0 -> "All Feeds"
+                1 -> selectedFeeds.single().title
+                else -> "${selectedFeeds.size} Feeds"
+            }
+        }
+
+    val widgetSelectedFeedSources: List<FeedSource>
+        get() {
+            val selectedIds = settings.effectiveWidgetFeedSourceIds().toSet()
+            return feedSources.filter { it.id in selectedIds }
+        }
 
     val widgetStories: List<NewsStory>
         get() {
-            val selectedFeed = feedSources.firstOrNull { it.id == settings.widgetFeedSourceId }
+            val selectedFeedTitles = widgetSelectedFeedSources.map { it.title }.toSet()
             return prioritizedStories.filter { story ->
-                selectedFeed == null || story.source == selectedFeed.title
+                selectedFeedTitles.isEmpty() || story.source in selectedFeedTitles
             }
         }
 
@@ -198,3 +213,13 @@ data class NewsUiState(
 }
 
 const val WIDGET_ALL_FEEDS = "all"
+
+fun RuntimeSettings.effectiveWidgetFeedSourceIds(): List<String> =
+    widgetFeedSourceIds.ifEmpty {
+        listOf(widgetFeedSourceId).filterNot { it == WIDGET_ALL_FEEDS }
+    }.distinct()
+
+fun WidgetPreset.effectiveFeedSourceIds(): List<String> =
+    feedSourceIds.ifEmpty {
+        listOf(feedSourceId).filterNot { it == WIDGET_ALL_FEEDS }
+    }.distinct()

@@ -43,6 +43,8 @@ import com.ainews.android.data.WidgetBackgroundMode
 import com.ainews.android.data.WidgetDensityMode
 import com.ainews.android.data.WidgetLayoutMode
 import com.ainews.android.data.WidgetThemeMode
+import com.ainews.android.data.effectiveFeedSourceIds
+import com.ainews.android.data.effectiveWidgetFeedSourceIds
 import com.ainews.android.network.ImageDiskCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -68,16 +70,23 @@ class NewsWidget : GlanceAppWidget() {
                 ?.let { presetId -> state.settings.widgetPresets.firstOrNull { it.id == presetId } }
             val settings = state.settings.copy(
                 widgetFeedSourceId = preset?.feedSourceId ?: state.settings.widgetFeedSourceId,
+                widgetFeedSourceIds = preset?.effectiveFeedSourceIds() ?: state.settings.effectiveWidgetFeedSourceIds(),
                 widgetLayoutMode = preset?.layoutMode ?: state.settings.widgetLayoutMode,
                 widgetBackgroundMode = preset?.backgroundMode ?: state.settings.widgetBackgroundMode,
                 widgetThemeMode = preset?.themeMode ?: state.settings.widgetThemeMode,
                 widgetDensityMode = preset?.densityMode ?: state.settings.widgetDensityMode,
                 widgetStackIndex = instancePreferences.stackIndex(appWidgetId),
             )
-            val selectedFeed = state.feedSources.firstOrNull { it.id == settings.widgetFeedSourceId }
-            val widgetFeedTitle = selectedFeed?.title ?: "All Feeds"
+            val selectedFeedIds = settings.effectiveWidgetFeedSourceIds().toSet()
+            val selectedFeeds = state.feedSources.filter { it.id in selectedFeedIds }
+            val widgetFeedTitle = when (selectedFeeds.size) {
+                0 -> "All Feeds"
+                1 -> selectedFeeds.single().title
+                else -> "${selectedFeeds.size} Feeds"
+            }
+            val selectedFeedTitles = selectedFeeds.map { it.title }.toSet()
             val allWidgetStories = state.prioritizedStories.filter { story ->
-                selectedFeed == null || story.source == selectedFeed.title
+                selectedFeedTitles.isEmpty() || story.source in selectedFeedTitles
             }
             val size = LocalSize.current
             val metrics = widgetMetrics(settings.widgetDensityMode)

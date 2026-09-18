@@ -36,6 +36,7 @@ import androidx.glance.appwidget.GlanceAppWidgetManager
 import com.ainews.android.data.FeedSource
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.WidgetPreset
+import com.ainews.android.data.effectiveFeedSourceIds
 import kotlinx.coroutines.launch
 
 class NewsWidgetConfigureActivity : ComponentActivity() {
@@ -177,6 +178,11 @@ private fun PresetCard(
 }
 
 private fun presetDescription(preset: WidgetPreset, feedSources: List<FeedSource>): String {
-    val feed = feedSources.firstOrNull { it.id == preset.feedSourceId }?.title ?: "All feeds"
+    val feedIds = preset.effectiveFeedSourceIds()
+    val feed = when (feedIds.size) {
+        0 -> "All feeds"
+        1 -> feedSources.firstOrNull { it.id == feedIds.single() }?.title ?: "All feeds"
+        else -> "${feedIds.size} feeds"
+    }
     return "$feed - ${preset.layoutMode.name} - ${preset.themeMode.name} - ${preset.densityMode.name}"
 }

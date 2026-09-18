@@ -14,7 +14,7 @@ class WidgetSettingsTest {
     @Test
     fun widgetStoriesFollowSelectedFeed() {
         val state = NewsUiState(
-            settings = RuntimeSettings(widgetFeedSourceId = "bbc-world"),
+            settings = RuntimeSettings(widgetFeedSourceIds = listOf("bbc-world")),
             stories = listOf(
                 story(id = "ai", source = "AI Policy", publishedAt = 20),
                 story(id = "bbc", source = "BBC World", publishedAt = 10),
@@ -23,6 +23,21 @@ class WidgetSettingsTest {
 
         assertEquals(listOf("bbc"), state.widgetStories.map { it.id })
         assertEquals("BBC World", state.widgetFeedTitle)
+    }
+
+    @Test
+    fun widgetStoriesCanMergeSelectedFeeds() {
+        val state = NewsUiState(
+            settings = RuntimeSettings(widgetFeedSourceIds = listOf("bbc-world", "google-ai-policy")),
+            stories = listOf(
+                story(id = "ai", source = "AI Policy", publishedAt = 30),
+                story(id = "bg", source = "Bulgaria Headlines", publishedAt = 20),
+                story(id = "bbc", source = "BBC World", publishedAt = 10),
+            ),
+        )
+
+        assertEquals(listOf("ai", "bbc"), state.widgetStories.map { it.id })
+        assertEquals("2 Feeds", state.widgetFeedTitle)
     }
 
     @Test

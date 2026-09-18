@@ -72,6 +72,8 @@ import com.ainews.android.data.WidgetLayoutMode
 import com.ainews.android.data.WidgetPreset
 import com.ainews.android.data.WidgetThemeMode
 import com.ainews.android.data.aiBudgetText
+import com.ainews.android.data.effectiveFeedSourceIds
+import com.ainews.android.data.effectiveWidgetFeedSourceIds
 import com.ainews.android.data.setupChecklistItems
 import com.ainews.android.network.ImageDiskCache
 import com.ainews.android.widget.NewsWidget
@@ -998,6 +1000,7 @@ private fun SettingsScreen(
 
         item {
             SettingsSection("Widget") {
+                val selectedWidgetFeedIds = draft.effectiveWidgetFeedSourceIds()
                 Text(
                     text = "Feed",
                     style = MaterialTheme.typography.labelMedium,
@@ -1009,10 +1012,11 @@ private fun SettingsScreen(
                 ) {
                     TopicChip(
                         text = "All feeds",
-                        selected = draft.widgetFeedSourceId == WIDGET_ALL_FEEDS,
+                        selected = selectedWidgetFeedIds.isEmpty(),
                         onClick = {
                             draft = draft.copy(
                                 widgetFeedSourceId = WIDGET_ALL_FEEDS,
+                                widgetFeedSourceIds = emptyList(),
                                 widgetStackIndex = 0,
                             )
                         },
@@ -1020,10 +1024,16 @@ private fun SettingsScreen(
                     feedSources.forEach { source ->
                         TopicChip(
                             text = source.title,
-                            selected = draft.widgetFeedSourceId == source.id,
+                            selected = source.id in selectedWidgetFeedIds,
                             onClick = {
+                                val nextIds = if (source.id in selectedWidgetFeedIds) {
+                                    selectedWidgetFeedIds - source.id
+                                } else {
+                                    selectedWidgetFeedIds + source.id
+                                }
                                 draft = draft.copy(
-                                    widgetFeedSourceId = source.id,
+                                    widgetFeedSourceId = nextIds.singleOrNull() ?: WIDGET_ALL_FEEDS,
+                                    widgetFeedSourceIds = nextIds,
                                     widgetStackIndex = 0,
                                 )
                             },
@@ -1121,7 +1131,8 @@ private fun SettingsScreen(
                             val preset = WidgetPreset(
                                 id = "widget-${System.currentTimeMillis()}",
                                 name = name,
-                                feedSourceId = draft.widgetFeedSourceId,
+                                feedSourceId = selectedWidgetFeedIds.singleOrNull() ?: WIDGET_ALL_FEEDS,
+                                feedSourceIds = selectedWidgetFeedIds,
                                 layoutMode = draft.widgetLayoutMode,
                                 backgroundMode = draft.widgetBackgroundMode,
                                 themeMode = draft.widgetThemeMode,
@@ -1145,10 +1156,12 @@ private fun SettingsScreen(
                     draft.widgetPresets.forEach { preset ->
                         SavedWidgetPresetRow(
                             preset = preset,
-                            feedTitle = feedSources.firstOrNull { it.id == preset.feedSourceId }?.title ?: "All feeds",
+                            feedTitle = widgetFeedTitle(preset.effectiveFeedSourceIds(), feedSources),
                             onApply = {
+                                val presetFeedIds = preset.effectiveFeedSourceIds()
                                 draft = draft.copy(
-                                    widgetFeedSourceId = preset.feedSourceId,
+                                    widgetFeedSourceId = presetFeedIds.singleOrNull() ?: WIDGET_ALL_FEEDS,
+                                    widgetFeedSourceIds = presetFeedIds,
                                     widgetLayoutMode = preset.layoutMode,
                                     widgetBackgroundMode = preset.backgroundMode,
                                     widgetThemeMode = preset.themeMode,
@@ -1175,6 +1188,13 @@ private fun SettingsScreen(
         }
     }
 }
+
+private fun widgetFeedTitle(feedIds: List<String>, feedSources: List<FeedSource>): String =
+    when (feedIds.size) {
+        0 -> "All feeds"
+        1 -> feedSources.firstOrNull { it.id == feedIds.single() }?.title ?: "All feeds"
+        else -> "${feedIds.size} feeds"
+    }
 
 @Composable
 private fun SavedWidgetPresetRow(

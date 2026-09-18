@@ -4,6 +4,23 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object RuntimePreferencesCodec {
+    fun stringListToJson(values: List<String>): String {
+        val array = JSONArray()
+        values.forEach(array::put)
+        return array.toString()
+    }
+
+    fun stringListFromJson(value: String): List<String> =
+        runCatching {
+            val array = JSONArray(value)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optString(index).trim()
+                    if (item.isNotBlank()) add(item)
+                }
+            }
+        }.getOrDefault(emptyList())
+
     fun monitorsToJson(monitors: List<NewsMonitor>): String {
         val array = JSONArray()
         monitors.forEach { monitor ->
@@ -83,6 +100,7 @@ object RuntimePreferencesCodec {
                     .put("id", preset.id)
                     .put("name", preset.name)
                     .put("feedSourceId", preset.feedSourceId)
+                    .put("feedSourceIds", JSONArray(preset.feedSourceIds))
                     .put("layoutMode", preset.layoutMode.name)
                     .put("backgroundMode", preset.backgroundMode.name)
                     .put("themeMode", preset.themeMode.name)
@@ -105,6 +123,16 @@ object RuntimePreferencesCodec {
                             id = item.optString("id").ifBlank { "widget-${name.hashCode()}" },
                             name = name,
                             feedSourceId = item.optString("feedSourceId").ifBlank { WIDGET_ALL_FEEDS },
+                            feedSourceIds = item.optJSONArray("feedSourceIds")
+                                ?.let { array ->
+                                    buildList {
+                                        for (feedIndex in 0 until array.length()) {
+                                            val feedId = array.optString(feedIndex).trim()
+                                            if (feedId.isNotBlank()) add(feedId)
+                                        }
+                                    }
+                                }
+                                .orEmpty(),
                             layoutMode = item.optString("layoutMode")
                                 .let { runCatching { WidgetLayoutMode.valueOf(it) }.getOrNull() }
                                 ?: WidgetLayoutMode.Column,

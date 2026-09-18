@@ -202,15 +202,17 @@ object NewsRepository {
 
     fun updateSettings(settings: RuntimeSettings) {
         val feedSources = _state.value.feedSources
+        val validFeedIds = feedSources.map { it.id }.toSet()
+        val normalizedWidgetFeedIds = settings.effectiveWidgetFeedSourceIds()
+            .filter { it in validFeedIds }
         val normalized = settings.copy(
             fetchCadenceMinutes = settings.fetchCadenceMinutes.coerceAtLeast(15),
             monitorScanHour = settings.monitorScanHour.coerceIn(0, 23),
             aiDailyBudgetCents = settings.aiDailyBudgetCents.coerceAtLeast(0),
             providerKeySaved = secureProviderKeyStore.hasKey(),
             onboardingDismissed = settings.onboardingDismissed,
-            widgetFeedSourceId = settings.widgetFeedSourceId
-                .takeIf { id -> id == WIDGET_ALL_FEEDS || feedSources.any { it.id == id } }
-                ?: WIDGET_ALL_FEEDS,
+            widgetFeedSourceId = normalizedWidgetFeedIds.singleOrNull() ?: WIDGET_ALL_FEEDS,
+            widgetFeedSourceIds = normalizedWidgetFeedIds,
             widgetLayoutMode = settings.widgetLayoutMode,
             widgetBackgroundMode = settings.widgetBackgroundMode,
             widgetThemeMode = settings.widgetThemeMode,
@@ -223,9 +225,12 @@ object NewsRepository {
                 .map { preset ->
                     preset.copy(
                         name = preset.name.trim(),
-                        feedSourceId = preset.feedSourceId
-                            .takeIf { id -> id == WIDGET_ALL_FEEDS || feedSources.any { it.id == id } }
+                        feedSourceId = preset.effectiveFeedSourceIds()
+                            .filter { it in validFeedIds }
+                            .singleOrNull()
                             ?: WIDGET_ALL_FEEDS,
+                        feedSourceIds = preset.effectiveFeedSourceIds()
+                            .filter { it in validFeedIds },
                     )
                 },
         )
