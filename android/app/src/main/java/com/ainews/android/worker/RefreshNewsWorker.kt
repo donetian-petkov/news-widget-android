@@ -21,9 +21,9 @@ class RefreshNewsWorker(
     companion object {
         private const val WORK_NAME = "ai-news-refresh"
 
-        fun schedule(context: Context) {
+        fun schedule(context: Context, cadenceMinutes: Long = 30) {
             val request = PeriodicWorkRequestBuilder<RefreshNewsWorker>(
-                30,
+                cadenceMinutes.coerceAtLeast(15),
                 TimeUnit.MINUTES,
             ).build()
 

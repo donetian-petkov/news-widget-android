@@ -8,6 +8,27 @@ enum class FetchStatus {
     Success,
 }
 
+enum class BackendMode {
+    NativeRuntime,
+    RemoteBackend,
+}
+
+enum class AiProvider {
+    OpenAI,
+    Anthropic,
+    LocalOnly,
+}
+
+data class RuntimeSettings(
+    val backendMode: BackendMode = BackendMode.NativeRuntime,
+    val aiProvider: AiProvider = AiProvider.OpenAI,
+    val remoteBackendUrl: String = "",
+    val fetchCadenceMinutes: Long = 30,
+    val monitorScanHour: Int = 20,
+    val aiDailyBudgetCents: Int = 100,
+    val providerKeySaved: Boolean = false,
+)
+
 data class RuntimeState(
     val runtimeEnabled: Boolean = true,
     val fetchEnabled: Boolean = true,
@@ -79,6 +100,7 @@ data class NewsUiState(
     val selectedTopic: String? = null,
     val monitors: List<NewsMonitor> = emptyList(),
     val alertMatches: List<AlertMatch> = emptyList(),
+    val settings: RuntimeSettings = RuntimeSettings(),
     val message: String? = null,
 ) {
     val visibleStories: List<NewsStory>

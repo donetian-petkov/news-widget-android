@@ -9,7 +9,7 @@ class AiNewsApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         NewsRepository.initialize(this)
-        RefreshNewsWorker.schedule(this)
+        RefreshNewsWorker.schedule(this, NewsRepository.state.value.settings.fetchCadenceMinutes)
         MonitorScanWorker.schedule(this)
     }
 }

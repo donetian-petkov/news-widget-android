@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -25,13 +26,18 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -40,9 +46,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.glance.appwidget.updateAll
+import com.ainews.android.data.AiProvider
+import com.ainews.android.data.BackendMode
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.NewsStory
 import com.ainews.android.data.NewsUiState
+import com.ainews.android.data.RuntimeSettings
 import com.ainews.android.widget.NewsWidget
 import kotlinx.coroutines.launch
 
@@ -53,13 +62,25 @@ fun AiNewsApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val selectedStory = state.selectedStory
+    var showSettings by remember { mutableStateOf(false) }
 
     MaterialTheme {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = Color(0xFFF8FAFC),
         ) {
-            if (selectedStory != null) {
+            if (showSettings) {
+                SettingsScreen(
+                    settings = state.settings,
+                    onBack = { showSettings = false },
+                    onSave = {
+                        NewsRepository.updateSettings(it)
+                        scope.launch { NewsWidget().updateAll(context) }
+                    },
+                    onSaveKey = NewsRepository::saveProviderKey,
+                    onClearKey = NewsRepository::clearProviderKey,
+                )
+            } else if (selectedStory != null) {
                 StoryDetail(
                     story = selectedStory,
                     onBack = { NewsRepository.selectStory(null) },
@@ -99,6 +120,7 @@ fun AiNewsApp() {
                         scope.launch { NewsWidget().updateAll(context) }
                     },
                     onSelectTopic = NewsRepository::selectTopic,
+                    onOpenSettings = { showSettings = true },
                     onOpenStory = NewsRepository::selectStory,
                     onHideStory = {
                         NewsRepository.hideStory(it)
@@ -121,6 +143,7 @@ private fun NewsFeed(
     onRestoreHidden: () -> Unit,
     onScanMonitors: () -> Unit,
     onSelectTopic: (String?) -> Unit,
+    onOpenSettings: () -> Unit,
     onOpenStory: (String) -> Unit,
     onHideStory: (String) -> Unit,
     onShareStory: (NewsStory) -> Unit,
@@ -139,6 +162,7 @@ private fun NewsFeed(
             onRestoreHidden = onRestoreHidden,
             onScanMonitors = onScanMonitors,
             onSelectTopic = onSelectTopic,
+            onOpenSettings = onOpenSettings,
         )
 
         Spacer(Modifier.height(14.dp))
@@ -171,6 +195,7 @@ private fun Header(
     onRestoreHidden: () -> Unit,
     onScanMonitors: () -> Unit,
     onSelectTopic: (String?) -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -210,6 +235,9 @@ private fun Header(
             }
             OutlinedButton(onClick = onAi) {
                 Text(if (state.runtime.aiEnabled) "AI on" else "AI off")
+            }
+            OutlinedButton(onClick = onOpenSettings) {
+                Text("Settings")
             }
         }
 
@@ -303,6 +331,192 @@ private fun Header(
             }
         }
     }
+}
+
+@Composable
+private fun SettingsScreen(
+    settings: RuntimeSettings,
+    onBack: () -> Unit,
+    onSave: (RuntimeSettings) -> Unit,
+    onSaveKey: (String) -> Unit,
+    onClearKey: () -> Unit,
+) {
+    var draft by remember(settings) { mutableStateOf(settings) }
+    var keyDraft by remember { mutableStateOf("") }
+
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(18.dp),
+    ) {
+        item {
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column {
+                    Text(
+                        text = "Settings",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A),
+                    )
+                    Text(
+                        text = "Runtime, provider, and monitor controls",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF64748B),
+                    )
+                }
+                TextButton(onClick = onBack) {
+                    Text("Done")
+                }
+            }
+        }
+
+        item {
+            SettingsSection("Runtime mode") {
+                ToggleRow(
+                    label = "Native runtime",
+                    description = "Phone fetches RSS and runs local state",
+                    checked = draft.backendMode == BackendMode.NativeRuntime,
+                    onCheckedChange = {
+                        draft = draft.copy(
+                            backendMode = if (it) BackendMode.NativeRuntime else BackendMode.RemoteBackend,
+                        )
+                    },
+                )
+                OutlinedTextField(
+                    value = draft.remoteBackendUrl,
+                    onValueChange = { draft = draft.copy(remoteBackendUrl = it) },
+                    label = { Text("Remote backend URL") },
+                    enabled = draft.backendMode == BackendMode.RemoteBackend,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        item {
+            SettingsSection("AI provider") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AiProvider.values().forEach { provider ->
+                        TopicChip(
+                            text = provider.name,
+                            selected = draft.aiProvider == provider,
+                            onClick = { draft = draft.copy(aiProvider = provider) },
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = keyDraft,
+                    onValueChange = { keyDraft = it },
+                    label = { Text(if (settings.providerKeySaved) "Provider key saved" else "Provider key") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        onSaveKey(keyDraft)
+                        keyDraft = ""
+                    }) {
+                        Text("Save key")
+                    }
+                    OutlinedButton(onClick = onClearKey, enabled = settings.providerKeySaved) {
+                        Text("Clear key")
+                    }
+                }
+            }
+        }
+
+        item {
+            SettingsSection("Cadence and budget") {
+                NumberField(
+                    label = "Fetch cadence minutes",
+                    value = draft.fetchCadenceMinutes.toString(),
+                    onValueChange = {
+                        draft = draft.copy(fetchCadenceMinutes = it.toLongOrNull() ?: draft.fetchCadenceMinutes)
+                    },
+                )
+                NumberField(
+                    label = "Monitor scan hour",
+                    value = draft.monitorScanHour.toString(),
+                    onValueChange = {
+                        draft = draft.copy(monitorScanHour = it.toIntOrNull() ?: draft.monitorScanHour)
+                    },
+                )
+                NumberField(
+                    label = "AI daily budget cents",
+                    value = draft.aiDailyBudgetCents.toString(),
+                    onValueChange = {
+                        draft = draft.copy(aiDailyBudgetCents = it.toIntOrNull() ?: draft.aiDailyBudgetCents)
+                    },
+                )
+            }
+        }
+
+        item {
+            Button(
+                onClick = { onSave(draft) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Save settings")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(14.dp),
+        ) {
+            Text(title, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun ToggleRow(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
+            Text(description, style = MaterialTheme.typography.bodySmall, color = Color(0xFF64748B))
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun NumberField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)

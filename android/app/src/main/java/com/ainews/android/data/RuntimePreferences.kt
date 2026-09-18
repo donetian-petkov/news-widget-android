@@ -14,9 +14,9 @@ private val Context.runtimeDataStore by preferencesDataStore(name = "runtime")
 class RuntimePreferences(
     private val context: Context,
 ) {
-    val runtimeState: Flow<RuntimeState> =
+    val runtimeState: Flow<Pair<RuntimeState, RuntimeSettings>> =
         context.runtimeDataStore.data.map { prefs ->
-            RuntimeState(
+            val runtime = RuntimeState(
                 runtimeEnabled = prefs[Keys.runtimeEnabled] ?: true,
                 fetchEnabled = prefs[Keys.fetchEnabled] ?: true,
                 aiEnabled = prefs[Keys.aiEnabled] ?: true,
@@ -29,6 +29,20 @@ class RuntimePreferences(
                 lastAiJobAt = prefs[Keys.lastAiJobAt]?.takeIf { it > 0 },
                 aiQueueStatus = prefs[Keys.aiQueueStatus] ?: "Idle",
             )
+            val settings = RuntimeSettings(
+                backendMode = prefs[Keys.backendMode]
+                    ?.let { runCatching { BackendMode.valueOf(it) }.getOrNull() }
+                    ?: BackendMode.NativeRuntime,
+                aiProvider = prefs[Keys.aiProvider]
+                    ?.let { runCatching { AiProvider.valueOf(it) }.getOrNull() }
+                    ?: AiProvider.OpenAI,
+                remoteBackendUrl = prefs[Keys.remoteBackendUrl].orEmpty(),
+                fetchCadenceMinutes = (prefs[Keys.fetchCadenceMinutes] ?: 30).coerceAtLeast(15),
+                monitorScanHour = ((prefs[Keys.monitorScanHour] ?: 20).toInt()).coerceIn(0, 23),
+                aiDailyBudgetCents = ((prefs[Keys.aiDailyBudgetCents] ?: 100).toInt()).coerceAtLeast(0),
+                providerKeySaved = prefs[Keys.providerKeySaved] ?: false,
+            )
+            runtime to settings
         }
 
     suspend fun save(runtime: RuntimeState) {
@@ -45,6 +59,18 @@ class RuntimePreferences(
         }
     }
 
+    suspend fun saveSettings(settings: RuntimeSettings) {
+        context.runtimeDataStore.edit { prefs ->
+            prefs[Keys.backendMode] = settings.backendMode.name
+            prefs[Keys.aiProvider] = settings.aiProvider.name
+            prefs[Keys.remoteBackendUrl] = settings.remoteBackendUrl
+            prefs[Keys.fetchCadenceMinutes] = settings.fetchCadenceMinutes.coerceAtLeast(15)
+            prefs[Keys.monitorScanHour] = settings.monitorScanHour.toLong().coerceIn(0, 23)
+            prefs[Keys.aiDailyBudgetCents] = settings.aiDailyBudgetCents.toLong().coerceAtLeast(0)
+            prefs[Keys.providerKeySaved] = settings.providerKeySaved
+        }
+    }
+
     private object Keys {
         val runtimeEnabled = booleanPreferencesKey("runtime_enabled")
         val fetchEnabled = booleanPreferencesKey("fetch_enabled")
@@ -55,5 +81,12 @@ class RuntimePreferences(
         val lastFetchStatus = stringPreferencesKey("last_fetch_status")
         val lastAiJobAt = longPreferencesKey("last_ai_job_at")
         val aiQueueStatus = stringPreferencesKey("ai_queue_status")
+        val backendMode = stringPreferencesKey("backend_mode")
+        val aiProvider = stringPreferencesKey("ai_provider")
+        val remoteBackendUrl = stringPreferencesKey("remote_backend_url")
+        val fetchCadenceMinutes = longPreferencesKey("fetch_cadence_minutes")
+        val monitorScanHour = longPreferencesKey("monitor_scan_hour")
+        val aiDailyBudgetCents = longPreferencesKey("ai_daily_budget_cents")
+        val providerKeySaved = booleanPreferencesKey("provider_key_saved")
     }
 }

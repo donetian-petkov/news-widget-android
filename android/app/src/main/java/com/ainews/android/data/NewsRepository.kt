@@ -22,6 +22,7 @@ object NewsRepository {
     private lateinit var appContext: Context
     private lateinit var storyDao: StoryDao
     private lateinit var runtimePreferences: RuntimePreferences
+    private lateinit var secureProviderKeyStore: SecureProviderKeyStore
     private val rssFeedFetcher = RssFeedFetcher()
 
     private fun seedStories(now: Long = System.currentTimeMillis()) = listOf(
@@ -101,6 +102,7 @@ object NewsRepository {
 
         storyDao = database.storyDao()
         runtimePreferences = RuntimePreferences(appContext)
+        secureProviderKeyStore = SecureProviderKeyStore(appContext)
 
         repositoryScope.launch {
             if (storyDao.countStories() == 0) {
@@ -112,11 +114,17 @@ object NewsRepository {
             combine(
                 storyDao.observeStories(),
                 runtimePreferences.runtimeState,
-            ) { stories, runtime ->
-                stories.map { it.toModel() } to runtime
-            }.collect { (stories, runtime) ->
+            ) { stories, runtimeWithSettings ->
+                Triple(stories.map { it.toModel() }, runtimeWithSettings.first, runtimeWithSettings.second)
+            }.collect { (stories, runtime, settings) ->
                 _state.update { current ->
-                    current.copy(stories = stories, runtime = runtime)
+                    current.copy(
+                        stories = stories,
+                        runtime = runtime,
+                        settings = settings.copy(
+                            providerKeySaved = settings.providerKeySaved || secureProviderKeyStore.hasKey(),
+                        ),
+                    )
                 }
             }
         }
@@ -144,7 +152,7 @@ object NewsRepository {
             )
             persistRuntime(runtime)
             if (enabled) {
-                RefreshNewsWorker.schedule(appContext)
+                RefreshNewsWorker.schedule(appContext, current.settings.fetchCadenceMinutes)
             } else {
                 RefreshNewsWorker.cancel(appContext)
                 AutoPowerOffWorker.cancel(appContext)
@@ -168,6 +176,40 @@ object NewsRepository {
                 runtime = runtime,
                 message = if (enabled) "AI enrichment on" else "AI enrichment off",
             )
+        }
+    }
+
+    fun updateSettings(settings: RuntimeSettings) {
+        val normalized = settings.copy(
+            fetchCadenceMinutes = settings.fetchCadenceMinutes.coerceAtLeast(15),
+            monitorScanHour = settings.monitorScanHour.coerceIn(0, 23),
+            aiDailyBudgetCents = settings.aiDailyBudgetCents.coerceAtLeast(0),
+            providerKeySaved = secureProviderKeyStore.hasKey(),
+        )
+        _state.update { current ->
+            persistSettings(normalized)
+            if (current.runtime.runtimeEnabled) {
+                RefreshNewsWorker.schedule(appContext, normalized.fetchCadenceMinutes)
+            }
+            current.copy(
+                settings = normalized,
+                message = "Settings saved",
+            )
+        }
+    }
+
+    fun saveProviderKey(key: String) {
+        secureProviderKeyStore.save(key)
+        val nextSettings = _state.value.settings.copy(providerKeySaved = secureProviderKeyStore.hasKey())
+        updateSettings(nextSettings)
+    }
+
+    fun clearProviderKey() {
+        secureProviderKeyStore.clear()
+        val nextSettings = _state.value.settings.copy(providerKeySaved = false)
+        persistSettings(nextSettings)
+        _state.update {
+            it.copy(settings = nextSettings, message = "Provider key cleared")
         }
     }
 
@@ -375,6 +417,12 @@ object NewsRepository {
     private fun persistRuntime(runtime: RuntimeState) {
         repositoryScope.launch {
             runtimePreferences.save(runtime)
+        }
+    }
+
+    private fun persistSettings(settings: RuntimeSettings) {
+        repositoryScope.launch {
+            runtimePreferences.saveSettings(settings)
         }
     }
 }
