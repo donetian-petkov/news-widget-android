@@ -135,17 +135,18 @@ class NewsWidget : GlanceAppWidget() {
                 state.prioritizedStories.filter { story ->
                     selectedFeedTitles.isEmpty() || story.source in selectedFeedTitles
                 }
-            }
+            }.filter { story -> !instancePreferences.unreadOnly(appWidgetId) || !story.isRead }
             val size = LocalSize.current
             val metrics = widgetMetrics(settings.widgetDensityMode)
             val type = widgetTypography(settings.widgetTypographyMode, settings.widgetFontScale)
             val preferredStoryCount = instancePreferences.storyCount(appWidgetId)
+            val unreadOnly = instancePreferences.unreadOnly(appWidgetId)
             val baseStoryLimit = when {
                 size.width < 180.dp || size.height < 130.dp -> 1
                 size.height < 220.dp -> 2
                 else -> preferredStoryCount
             }
-            val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(40)
+            val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(100)
             // A fetch that died with the process would otherwise leave the spinner up forever.
             val fetching = state.runtime.lastFetchStatus == FetchStatus.Fetching &&
                 (System.currentTimeMillis() - (state.runtime.lastFetchStartedAt ?: 0L)) < STALE_FETCH_MILLIS
@@ -266,23 +267,6 @@ class NewsWidget : GlanceAppWidget() {
                         backgroundRes = buttonBackground,
                         tint = palette.header,
                     )
-                    if (!stackMode && size.width >= 300.dp) {
-                        WidgetIconButton(
-                            iconRes = if (preferredStoryCount >= 40) {
-                                R.drawable.ic_collapse_less
-                            } else {
-                                R.drawable.ic_expand_more
-                            },
-                            contentDescription = if (preferredStoryCount >= 40) {
-                                "Show 15 stories"
-                            } else {
-                                "Show 40 stories"
-                            },
-                            action = actionRunCallback<ToggleWidgetStoryCountAction>(),
-                            backgroundRes = buttonBackground,
-                            tint = palette.header,
-                        )
-                    }
                 }
 
                 Spacer(GlanceModifier.height(metrics.sectionGap))
@@ -309,7 +293,12 @@ class NewsWidget : GlanceAppWidget() {
                             isAlert = state.alertMatches.any { it.storyId == story.id },
                             thumbnail = cachedImages[story.id]
                                 .takeIf { size.width >= 220.dp && size.height >= 150.dp },
-                            showActions = showActions && stackMode,
+                            actionStyle = when {
+                                !showActions -> WidgetActionStyle.None
+                                stackMode -> WidgetActionStyle.Full
+                                size.width >= 260.dp -> WidgetActionStyle.Compact
+                                else -> WidgetActionStyle.None
+                            },
                             showSummary = stackMode &&
                                 size.width >= 260.dp &&
                                 size.height >= metrics.summaryHeightThreshold,
@@ -319,6 +308,54 @@ class NewsWidget : GlanceAppWidget() {
                             palette = palette,
                             metrics = metrics,
                             type = type,
+                        )
+                    }
+                }
+
+                if (!stackMode && showActions) {
+                    Spacer(GlanceModifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_unread,
+                            contentDescription = if (unreadOnly) "Show every story" else "Show unread only",
+                            action = actionRunCallback<ToggleUnreadOnlyAction>(),
+                            backgroundRes = buttonBackground,
+                            tint = if (unreadOnly) palette.statusText else palette.muted,
+                        )
+                        if (allWidgetStories.size > stories.size) {
+                            WidgetIconButton(
+                                iconRes = R.drawable.ic_expand_more,
+                                contentDescription = "Show more stories",
+                                action = actionRunCallback<ShowMoreStoriesAction>(),
+                                backgroundRes = buttonBackground,
+                                tint = palette.muted,
+                            )
+                        }
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_done_all,
+                            contentDescription = "Mark everything read",
+                            action = actionRunCallback<MarkAllReadAction>(),
+                            backgroundRes = buttonBackground,
+                            tint = palette.muted,
+                        )
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_settings,
+                            contentDescription = "Widget settings",
+                            action = actionRunCallback<OpenWidgetSettingsAction>(),
+                            backgroundRes = buttonBackground,
+                            tint = palette.muted,
+                        )
+                        Text(
+                            text = if (unreadOnly) {
+                                "${stories.size} unread of ${allWidgetStories.size}"
+                            } else {
+                                "${stories.size} of ${allWidgetStories.size}"
+                            },
+                            style = TextStyle(
+                                color = ColorProvider(palette.muted),
+                                fontSize = type.meta,
+                            ),
+                            maxLines = 1,
                         )
                     }
                 }
@@ -376,7 +413,7 @@ private fun WidgetStoryRow(
     showDivider: Boolean,
     isAlert: Boolean,
     thumbnail: android.graphics.Bitmap?,
-    showActions: Boolean,
+    actionStyle: WidgetActionStyle,
     showSummary: Boolean,
     showExtraActions: Boolean,
     buttonBackground: Int,
@@ -439,7 +476,50 @@ private fun WidgetStoryRow(
                     )
                 }
             }
-            if (showActions) {
+            if (actionStyle == WidgetActionStyle.Compact) {
+                Row(horizontalAlignment = Alignment.Start) {
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_pin,
+                        contentDescription = if (story.isSaved) "Remove from library" else "Save story",
+                        action = actionRunCallback<ToggleSaveStoryAction>(
+                            actionParametersOf(storyIdKey to story.id),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = if (story.isSaved) palette.pinText else palette.header,
+                    )
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_hide,
+                        contentDescription = "Hide story",
+                        action = actionRunCallback<HideStoryAction>(
+                            actionParametersOf(storyIdKey to story.id),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = palette.header,
+                    )
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_share,
+                        contentDescription = "Share story",
+                        action = actionRunCallback<ShareStoryAction>(
+                            actionParametersOf(storyIdKey to story.id),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = palette.header,
+                    )
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_summary,
+                        contentDescription = "Open in the app",
+                        action = actionRunCallback<OpenStorySectionAction>(
+                            actionParametersOf(
+                                storyIdKey to story.id,
+                                storySectionKey to StoryDetailSection.Story.name,
+                            ),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = palette.header,
+                    )
+                }
+            }
+            if (actionStyle == WidgetActionStyle.Full) {
                 Row(horizontalAlignment = Alignment.Start) {
                     WidgetIconButton(
                         iconRes = R.drawable.ic_open,
@@ -803,6 +883,75 @@ class ToggleRuntimeAction : ActionCallback {
     ) {
         NewsRepository.toggleRuntime()
         NewsWidget().updateAll(context)
+    }
+}
+
+enum class WidgetActionStyle {
+    None,
+    Compact,
+    Full,
+}
+
+class ToggleUnreadOnlyAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        val preferences = WidgetInstancePreferences(context)
+        preferences.saveUnreadOnly(appWidgetId, !preferences.unreadOnly(appWidgetId))
+        NewsWidget().updateAll(context)
+    }
+}
+
+class ShowMoreStoriesAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        val preferences = WidgetInstancePreferences(context)
+        preferences.saveStoryCount(appWidgetId, preferences.storyCount(appWidgetId) + 10)
+        NewsWidget().updateAll(context)
+    }
+}
+
+class MarkAllReadAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        NewsRepository.markAllRead()
+        NewsWidget().updateAll(context)
+    }
+}
+
+class ToggleSaveStoryAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        parameters[storyIdKey]?.let(NewsRepository::toggleSaved)
+        NewsWidget().updateAll(context)
+    }
+}
+
+class OpenWidgetSettingsAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        val intent = Intent(context, NewsWidgetConfigureActivity::class.java).apply {
+            putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
     }
 }
 

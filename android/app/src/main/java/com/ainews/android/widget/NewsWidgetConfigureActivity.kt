@@ -19,7 +19,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import com.ainews.android.data.dynamicThemePalette
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -59,8 +66,37 @@ class NewsWidgetConfigureActivity : ComponentActivity() {
         setContent {
             val state by NewsRepository.state.collectAsState()
             val scope = rememberCoroutineScope()
-            MaterialTheme {
-                Surface(color = Color(0xFFF8FAFC), modifier = Modifier.fillMaxSize()) {
+            val systemInDarkMode = isSystemInDarkTheme()
+            val palette = state.settings
+                .takeIf { it.useMaterialYou }
+                ?.let { dynamicThemePalette(this, state.settings.appVibe.isDark(systemInDarkMode)) }
+                ?: state.settings.appVibe.palette(systemInDarkMode)
+            val colorScheme = if (state.settings.appVibe.isDark(systemInDarkMode)) {
+                darkColorScheme(
+                    background = Color(palette.background),
+                    surface = Color(palette.panel),
+                    primary = Color(palette.accentBlue),
+                    onSurface = Color(palette.textPrimary),
+                    onSurfaceVariant = Color(palette.textSecondary),
+                    outlineVariant = Color(palette.chipPanel),
+                )
+            } else {
+                lightColorScheme(
+                    background = Color(palette.background),
+                    surface = Color(palette.panel),
+                    primary = Color(palette.accentBlue),
+                    onSurface = Color(palette.textPrimary),
+                    onSurfaceVariant = Color(palette.textSecondary),
+                    outlineVariant = Color(palette.chipPanel),
+                )
+            }
+            MaterialTheme(colorScheme = colorScheme) {
+                Surface(
+                    color = MaterialTheme.colorScheme.background,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.safeDrawing),
+                ) {
                     WidgetConfigureScreen(
                         presets = state.settings.widgetPresets,
                         feedSources = state.feedSources,

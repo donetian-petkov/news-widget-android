@@ -36,14 +36,23 @@ class WidgetInstancePreferences(context: Context) {
         }.apply()
     }
 
+    fun unreadOnly(appWidgetId: Int): Boolean =
+        prefs.getBoolean(unreadKey(appWidgetId), false)
+
+    fun saveUnreadOnly(appWidgetId: Int, unreadOnly: Boolean) {
+        prefs.edit().putBoolean(unreadKey(appWidgetId), unreadOnly).apply()
+    }
+
     fun storyCount(appWidgetId: Int): Int =
-        prefs.getInt(countKey(appWidgetId), 15).coerceIn(5, 40)
+        prefs.getInt(countKey(appWidgetId), 15).coerceIn(5, 100)
 
     fun saveStoryCount(appWidgetId: Int, count: Int) {
         prefs.edit()
-            .putInt(countKey(appWidgetId), count.coerceIn(5, 40))
+            .putInt(countKey(appWidgetId), count.coerceIn(5, 100))
             .apply()
     }
+
+    private fun unreadKey(appWidgetId: Int) = "unread-only-$appWidgetId"
 
     fun moveStack(appWidgetId: Int, offset: Int) {
         prefs.edit()
