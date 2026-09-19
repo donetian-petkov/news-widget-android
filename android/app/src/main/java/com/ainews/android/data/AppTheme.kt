@@ -201,3 +201,41 @@ data class ThemePalette(
     val goldPanel: Long get() = blend(panel, accentGold, 0.24f)
     val chipPanel: Long get() = blend(panel, textMuted, 0.18f)
 }
+
+/**
+ * The palette Android derives from the wallpaper. Available from Android 12, and used by
+ * both the app and the widget when the user turns wallpaper colours on.
+ */
+fun dynamicThemePalette(context: android.content.Context, darkMode: Boolean): ThemePalette? {
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) return null
+    fun color(id: Int): Long = (context.getColor(id).toLong() and 0xFFFFFFFFL)
+    return if (darkMode) {
+        ThemePalette(
+            background = color(android.R.color.system_neutral1_900),
+            backgroundAlt = color(android.R.color.system_neutral1_800),
+            panel = color(android.R.color.system_neutral2_800),
+            panelBorder = color(android.R.color.system_accent1_600),
+            textPrimary = color(android.R.color.system_neutral1_50),
+            textSecondary = color(android.R.color.system_neutral2_200),
+            textMuted = color(android.R.color.system_neutral2_400),
+            accentBlue = color(android.R.color.system_accent1_200),
+            accentCyan = color(android.R.color.system_accent3_200),
+            accentGold = color(android.R.color.system_accent2_200),
+            accentRose = color(android.R.color.system_accent3_100),
+        )
+    } else {
+        ThemePalette(
+            background = color(android.R.color.system_neutral1_50),
+            backgroundAlt = color(android.R.color.system_neutral1_100),
+            panel = color(android.R.color.system_neutral1_0),
+            panelBorder = color(android.R.color.system_accent1_200),
+            textPrimary = color(android.R.color.system_neutral1_900),
+            textSecondary = color(android.R.color.system_neutral2_700),
+            textMuted = color(android.R.color.system_neutral2_600),
+            accentBlue = color(android.R.color.system_accent1_600),
+            accentCyan = color(android.R.color.system_accent3_600),
+            accentGold = color(android.R.color.system_accent2_600),
+            accentRose = color(android.R.color.system_accent3_700),
+        )
+    }
+}

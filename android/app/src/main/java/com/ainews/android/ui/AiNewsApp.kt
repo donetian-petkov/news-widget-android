@@ -122,6 +122,7 @@ import com.ainews.android.data.AppVibe
 import com.ainews.android.data.WidgetTypographyMode
 import com.ainews.android.data.aiBudgetText
 import com.ainews.android.data.aiConfigured
+import com.ainews.android.data.dynamicThemePalette
 import com.ainews.android.data.effectiveFeedSourceIds
 import com.ainews.android.data.effectiveWidgetFeedSourceIds
 import com.ainews.android.data.setupChecklistItems
@@ -156,7 +157,10 @@ fun AiNewsApp() {
     }
 
     val systemInDarkMode = isSystemInDarkTheme()
-    val palette = state.settings.appVibe.palette(systemInDarkMode)
+    val palette = state.settings
+        .takeIf { it.useMaterialYou }
+        ?.let { dynamicThemePalette(context, state.settings.appVibe.isDark(systemInDarkMode)) }
+        ?: state.settings.appVibe.palette(systemInDarkMode)
     val dynamicColours = state.settings.useMaterialYou && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val colorScheme = if (dynamicColours) {
         if (state.settings.appVibe.isDark(systemInDarkMode)) {

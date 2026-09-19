@@ -54,6 +54,8 @@ import com.ainews.android.MainActivity
 import com.ainews.android.R
 import com.ainews.android.data.FetchStatus
 import com.ainews.android.data.FontScale
+import com.ainews.android.data.ThemePalette
+import com.ainews.android.data.dynamicThemePalette
 import com.ainews.android.data.KeywordMatcher
 import com.ainews.android.data.WIDGET_FILTERED_FEED
 import com.ainews.android.data.NewsStory
@@ -159,9 +161,11 @@ class NewsWidget : GlanceAppWidget() {
             val systemInDarkMode = (
                 context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
                 ) == Configuration.UI_MODE_NIGHT_YES
+            val themePalette = settings.takeIf { it.useMaterialYou }
+                ?.let { dynamicThemePalette(context, settings.appVibe.isDark(systemInDarkMode)) }
+                ?: settings.appVibe.palette(systemInDarkMode)
             val palette = widgetPalette(
-                vibe = settings.appVibe,
-                systemInDarkMode = systemInDarkMode,
+                palette = themePalette,
                 backgroundMode = settings.widgetBackgroundMode,
             )
             val darkTheme = settings.appVibe.isDark(systemInDarkMode)
@@ -741,11 +745,9 @@ private fun normalizedStackIndex(stackIndex: Int, storyCount: Int): Int {
 }
 
 private fun widgetPalette(
-    vibe: AppVibe,
-    systemInDarkMode: Boolean,
+    palette: ThemePalette,
     backgroundMode: WidgetBackgroundMode,
 ): WidgetPalette {
-    val palette = vibe.palette(systemInDarkMode)
     val background = when (backgroundMode) {
         WidgetBackgroundMode.Solid -> palette.background
         WidgetBackgroundMode.Transparent -> (palette.background and 0x00FFFFFF) or (0xDDL shl 24)
