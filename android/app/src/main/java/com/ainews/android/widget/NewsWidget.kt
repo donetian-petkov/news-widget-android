@@ -429,8 +429,31 @@ class NewsWidget : GlanceAppWidget() {
                                 fontSize = type.meta,
                             ),
                             maxLines = 1,
-                            modifier = GlanceModifier.defaultWeight(),
                         )
+                        Spacer(GlanceModifier.width(10.dp))
+                        // Paging lives here as well as at the end of the list, so you never
+                        // have to scroll to the bottom to reach it.
+                        Text(
+                            text = if (pageIndex < pageCount - 1) "More" else "Fetch",
+                            style = TextStyle(
+                                color = ColorProvider(palette.statusText),
+                                fontSize = type.meta,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            maxLines = 1,
+                            modifier = GlanceModifier
+                                .clickable(
+                                    if (pageIndex < pageCount - 1) {
+                                        actionRunCallback<NextPageAction>(
+                                            actionParametersOf(appWidgetIdKey to appWidgetId),
+                                        )
+                                    } else {
+                                        actionRunCallback<RefreshAction>()
+                                    },
+                                )
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                        Spacer(GlanceModifier.defaultWeight())
                         if (pageIndex > 0) {
                             WidgetIconButton(
                                 iconRes = R.drawable.ic_arrow_up,

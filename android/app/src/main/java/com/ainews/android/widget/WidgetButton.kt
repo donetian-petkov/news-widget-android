@@ -11,6 +11,7 @@ import androidx.glance.action.clickable
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.ColorFilter
 import androidx.glance.background
+import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
@@ -29,20 +30,28 @@ fun WidgetIconButton(
     tint: Color? = null,
     compact: Boolean = false,
 ) {
+    // Fixed square box with the icon centred: padding alone left the glyphs off centre.
+    val box = if (compact) 26.dp else 32.dp
+    val icon = if (compact) 14.dp else 18.dp
     Box(
-        modifier = GlanceModifier
-            .padding(end = if (compact) 6.dp else 8.dp)
-            .background(ImageProvider(backgroundRes))
-            .cornerRadius(if (compact) 12.dp else 16.dp)
-            .clickable(action)
-            .padding(if (compact) 5.dp else 7.dp),
+        modifier = GlanceModifier.padding(end = if (compact) 6.dp else 8.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Image(
-            provider = ImageProvider(iconRes),
-            contentDescription = contentDescription,
-            colorFilter = tint?.let { ColorFilter.tint(ColorProvider(it)) },
-            modifier = GlanceModifier.size(if (compact) 14.dp else 18.dp),
-        )
+        Box(
+            modifier = GlanceModifier
+                .size(box)
+                .background(ImageProvider(backgroundRes))
+                .cornerRadius(box / 2)
+                .clickable(action),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                provider = ImageProvider(iconRes),
+                contentDescription = contentDescription,
+                colorFilter = tint?.let { ColorFilter.tint(ColorProvider(it)) },
+                modifier = GlanceModifier.size(icon),
+            )
+        }
     }
 }
 
