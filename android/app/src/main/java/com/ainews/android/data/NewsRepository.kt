@@ -388,6 +388,27 @@ object NewsRepository {
         }
     }
 
+    /** Applies one switch to every feed, so the list does not have to be edited one by one. */
+    fun setAllFeeds(fetchEnabled: Boolean? = null, aiEnabled: Boolean? = null, neutralTitles: Boolean? = null) {
+        _state.update { current ->
+            val feedSources = current.feedSources.map { source ->
+                source.copy(
+                    fetchEnabled = fetchEnabled ?: source.fetchEnabled,
+                    aiEnabled = aiEnabled ?: source.aiEnabled,
+                    neutralTitlesEnabled = neutralTitles ?: source.neutralTitlesEnabled,
+                )
+            }
+            persistFeedSources(feedSources)
+            val message = when {
+                fetchEnabled != null -> if (fetchEnabled) "Fetching every feed" else "Fetching paused for every feed"
+                aiEnabled != null -> if (aiEnabled) "AI on for every feed" else "AI paused for every feed"
+                neutralTitles != null -> if (neutralTitles) "Neutral titles on everywhere" else "Neutral titles off everywhere"
+                else -> null
+            }
+            current.copy(feedSources = feedSources, message = message)
+        }
+    }
+
     fun toggleFeedFetch(feedSourceId: String) {
         _state.update { current ->
             val feedSources = current.feedSources.map { source ->
@@ -523,6 +544,7 @@ object NewsRepository {
                     provider = if (paidEnrichment) "openai" else "local",
                     storyTitle = story.title,
                     costCents = if (paidEnrichment) OPENAI_ENRICHMENT_ESTIMATE_CENTS else 0,
+                    tokens = if (paidEnrichment) aiEnrichmentClient.consumeTokenUsage().total else 0,
                 )
                 enrichedCount += 1
             }
@@ -960,6 +982,7 @@ object NewsRepository {
             provider = if (paid) "openai" else "local",
             storyTitle = story.title,
             costCents = if (paid) OPENAI_ACTION_ESTIMATE_CENTS else 0,
+            tokens = if (paid) aiEnrichmentClient.consumeTokenUsage().total else 0,
         )
 
         _state.update { state ->
@@ -1103,7 +1126,13 @@ object NewsRepository {
         _state.update { it.copy(fetchHistory = emptyList(), message = "Fetch history cleared") }
     }
 
-    private fun recordUsage(action: String, provider: String, storyTitle: String, costCents: Int) {
+    private fun recordUsage(
+        action: String,
+        provider: String,
+        storyTitle: String,
+        costCents: Int,
+        tokens: Int = 0,
+    ) {
         _state.update { current ->
             val record = AiUsageRecord(
                 id = "usage-${System.currentTimeMillis()}-${action.hashCode()}",
@@ -1112,6 +1141,7 @@ object NewsRepository {
                 provider = provider,
                 storyTitle = storyTitle,
                 costCents = costCents,
+                tokens = tokens,
             )
             val records = (listOf(record) + current.usageRecords).take(100)
             persistUsage(records)

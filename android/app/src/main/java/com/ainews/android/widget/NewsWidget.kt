@@ -321,6 +321,7 @@ class NewsWidget : GlanceAppWidget() {
                             action = actionRunCallback<ToggleUnreadOnlyAction>(),
                             backgroundRes = buttonBackground,
                             tint = if (unreadOnly) palette.statusText else palette.muted,
+                            compact = true,
                         )
                         if (allWidgetStories.size > stories.size) {
                             WidgetIconButton(
@@ -337,6 +338,7 @@ class NewsWidget : GlanceAppWidget() {
                             action = actionRunCallback<MarkAllReadAction>(),
                             backgroundRes = buttonBackground,
                             tint = palette.muted,
+                            compact = true,
                         )
                         WidgetIconButton(
                             iconRes = R.drawable.ic_settings,
@@ -344,12 +346,20 @@ class NewsWidget : GlanceAppWidget() {
                             action = actionRunCallback<OpenWidgetSettingsAction>(),
                             backgroundRes = buttonBackground,
                             tint = palette.muted,
+                            compact = true,
                         )
+                        if (fetching) {
+                            CircularProgressIndicator(
+                                color = ColorProvider(palette.statusText),
+                                modifier = GlanceModifier.size(14.dp),
+                            )
+                            Spacer(GlanceModifier.width(6.dp))
+                        }
                         Text(
-                            text = if (unreadOnly) {
-                                "${stories.size} unread of ${allWidgetStories.size}"
-                            } else {
-                                "${stories.size} of ${allWidgetStories.size}"
+                            text = when {
+                                fetching -> "Fetching new stories"
+                                unreadOnly -> "${stories.size} unread of ${allWidgetStories.size}"
+                                else -> "${stories.size} of ${allWidgetStories.size}"
                             },
                             style = TextStyle(
                                 color = ColorProvider(palette.muted),
@@ -477,24 +487,17 @@ private fun WidgetStoryRow(
                 }
             }
             if (actionStyle == WidgetActionStyle.Compact) {
-                Row(horizontalAlignment = Alignment.Start) {
+                Spacer(GlanceModifier.height(6.dp))
+                Row(horizontalAlignment = Alignment.End, modifier = GlanceModifier.fillMaxWidth()) {
                     WidgetIconButton(
-                        iconRes = R.drawable.ic_pin,
+                        iconRes = R.drawable.ic_bookmark,
                         contentDescription = if (story.isSaved) "Remove from library" else "Save story",
                         action = actionRunCallback<ToggleSaveStoryAction>(
                             actionParametersOf(storyIdKey to story.id),
                         ),
                         backgroundRes = buttonBackground,
-                        tint = if (story.isSaved) palette.pinText else palette.header,
-                    )
-                    WidgetIconButton(
-                        iconRes = R.drawable.ic_hide,
-                        contentDescription = "Hide story",
-                        action = actionRunCallback<HideStoryAction>(
-                            actionParametersOf(storyIdKey to story.id),
-                        ),
-                        backgroundRes = buttonBackground,
-                        tint = palette.header,
+                        tint = if (story.isSaved) palette.pinText else palette.muted,
+                        compact = true,
                     )
                     WidgetIconButton(
                         iconRes = R.drawable.ic_share,
@@ -503,19 +506,18 @@ private fun WidgetStoryRow(
                             actionParametersOf(storyIdKey to story.id),
                         ),
                         backgroundRes = buttonBackground,
-                        tint = palette.header,
+                        tint = palette.muted,
+                        compact = true,
                     )
                     WidgetIconButton(
-                        iconRes = R.drawable.ic_summary,
-                        contentDescription = "Open in the app",
-                        action = actionRunCallback<OpenStorySectionAction>(
-                            actionParametersOf(
-                                storyIdKey to story.id,
-                                storySectionKey to StoryDetailSection.Story.name,
-                            ),
+                        iconRes = R.drawable.ic_hide,
+                        contentDescription = "Hide story",
+                        action = actionRunCallback<HideStoryAction>(
+                            actionParametersOf(storyIdKey to story.id),
                         ),
                         backgroundRes = buttonBackground,
-                        tint = palette.header,
+                        tint = palette.muted,
+                        compact = true,
                     )
                 }
             }

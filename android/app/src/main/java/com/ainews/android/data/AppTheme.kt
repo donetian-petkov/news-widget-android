@@ -195,7 +195,7 @@ data class ThemePalette(
         return (0xFFL shl 24) or (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
     }
 
-    val alertPanel: Long get() = blend(panel, accentRose, 0.22f)
+    val alertPanel: Long get() = blend(panel, accentRose, 0.12f)
     val successPanel: Long get() = blend(panel, accentCyan, 0.20f)
     val infoPanel: Long get() = blend(panel, accentBlue, 0.16f)
     val goldPanel: Long get() = blend(panel, accentGold, 0.24f)

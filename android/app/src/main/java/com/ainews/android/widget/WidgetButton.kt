@@ -27,20 +27,21 @@ fun WidgetIconButton(
     action: Action,
     backgroundRes: Int = R.drawable.widget_button_light,
     tint: Color? = null,
+    compact: Boolean = false,
 ) {
     Box(
         modifier = GlanceModifier
-            .padding(end = 8.dp)
+            .padding(end = if (compact) 6.dp else 8.dp)
             .background(ImageProvider(backgroundRes))
-            .cornerRadius(12.dp)
+            .cornerRadius(if (compact) 9.dp else 12.dp)
             .clickable(action)
-            .padding(7.dp),
+            .padding(if (compact) 5.dp else 7.dp),
     ) {
         Image(
             provider = ImageProvider(iconRes),
             contentDescription = contentDescription,
             colorFilter = tint?.let { ColorFilter.tint(ColorProvider(it)) },
-            modifier = GlanceModifier.size(18.dp),
+            modifier = GlanceModifier.size(if (compact) 14.dp else 18.dp),
         )
     }
 }

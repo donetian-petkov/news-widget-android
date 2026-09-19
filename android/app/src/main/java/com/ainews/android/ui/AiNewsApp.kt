@@ -310,6 +310,10 @@ fun AiNewsApp() {
                         },
                         onToggleAi = NewsRepository::toggleFeedAi,
                         onToggleNeutralTitles = NewsRepository::toggleFeedNeutralTitles,
+                        onSetAllFeeds = { fetch, ai, neutral ->
+                            NewsRepository.setAllFeeds(fetch, ai, neutral)
+                            refreshWidget()
+                        },
                         onImportOpml = NewsRepository::importOpml,
                         onExportOpml = NewsRepository::exportOpml,
                         onRefresh = {
@@ -867,6 +871,21 @@ private fun Header(
             }
         }
 
+        if (state.runtime.lastFetchStatus == FetchStatus.Fetching) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                Text(
+                    text = "Fetching the feeds",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
         if (searchOpen) {
             OutlinedTextField(
                 value = state.searchQuery,
@@ -1302,6 +1321,7 @@ private fun FeedSourceScreen(
     onToggleFetch: (String) -> Unit,
     onToggleAi: (String) -> Unit,
     onToggleNeutralTitles: (String) -> Unit,
+    onSetAllFeeds: (Boolean?, Boolean?, Boolean?) -> Unit,
     onImportOpml: (String) -> Int,
     onExportOpml: () -> String,
     onRefresh: () -> Unit,
@@ -1357,7 +1377,61 @@ private fun FeedSourceScreen(
         }
 
         item {
-            SettingsSection("New RSS feed") {
+            SettingsSection("All feeds at once") {
+                Text(
+                    text = "Set every feed in one go instead of editing them one by one.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "Fetching",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onSetAllFeeds(true, null, null) }) {
+                        Text("On for all")
+                    }
+                    OutlinedButton(onClick = { onSetAllFeeds(false, null, null) }) {
+                        Text("Off for all")
+                    }
+                }
+                Text(
+                    text = "AI",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onSetAllFeeds(null, true, null) }) {
+                        Text("On for all")
+                    }
+                    OutlinedButton(onClick = { onSetAllFeeds(null, false, null) }) {
+                        Text("Off for all")
+                    }
+                }
+                Text(
+                    text = "Neutral headlines",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onSetAllFeeds(null, null, true) }) {
+                        Text("On for all")
+                    }
+                    OutlinedButton(onClick = { onSetAllFeeds(null, null, false) }) {
+                        Text("Off for all")
+                    }
+                }
+            }
+        }
+
+        item {
+            SettingsSection("Add your own feed") {
+                Text(
+                    text = "Paste any RSS or Atom address - a newspaper, a blog, a YouTube channel - and it joins the list below.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 OutlinedTextField(
                     value = titleDraft,
                     onValueChange = { titleDraft = it },
@@ -3035,6 +3109,7 @@ private fun UsageScreen(
     onRegenerateKind: (StoryAiAction) -> Unit,
 ) {
     val totalCents = state.usageRecords.sumOf { it.costCents }
+    val totalTokens = state.usageRecords.sumOf { it.tokens }
     val byAction = state.usageRecords.groupBy { it.action }
 
     LazyColumn(
@@ -3046,7 +3121,11 @@ private fun UsageScreen(
         item {
             ScreenHeader(
                 title = "AI usage",
-                subtitle = "${state.usageRecords.size} requests, ${totalCents}c estimated",
+                subtitle = if (totalTokens > 0) {
+                    "${state.usageRecords.size} requests, $totalTokens tokens, ${totalCents}c"
+                } else {
+                    "${state.usageRecords.size} requests, ${totalCents}c estimated"
+                },
                 onBack = onBack,
             )
         }
@@ -3101,7 +3180,8 @@ private fun UsageScreen(
                     Text("Totals by action", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     byAction.forEach { (action, records) ->
                         Text(
-                            text = "$action - ${records.size} requests, ${records.sumOf { it.costCents }}c",
+                            text = "$action - ${records.size} requests, " +
+                                "${records.sumOf { it.tokens }} tokens, ${records.sumOf { it.costCents }}c",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -3128,7 +3208,11 @@ private fun UsageScreen(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${formatStoryTime(record.createdAt)} - ${record.costCents}c",
+                    text = if (record.tokens > 0) {
+                        "${formatStoryTime(record.createdAt)} - ${record.tokens} tokens - ${record.costCents}c"
+                    } else {
+                        "${formatStoryTime(record.createdAt)} - ${record.costCents}c"
+                    },
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

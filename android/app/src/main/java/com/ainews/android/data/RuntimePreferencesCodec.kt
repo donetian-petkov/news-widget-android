@@ -250,7 +250,8 @@ object RuntimePreferencesCodec {
                     .put("action", record.action)
                     .put("provider", record.provider)
                     .put("storyTitle", record.storyTitle)
-                    .put("costCents", record.costCents),
+                    .put("costCents", record.costCents)
+                    .put("tokens", record.tokens),
             )
         }
         return array.toString()
@@ -272,6 +273,7 @@ object RuntimePreferencesCodec {
                             provider = item.optString("provider").ifBlank { "local" },
                             storyTitle = item.optString("storyTitle"),
                             costCents = item.optInt("costCents"),
+                            tokens = item.optInt("tokens"),
                         ),
                     )
                 }

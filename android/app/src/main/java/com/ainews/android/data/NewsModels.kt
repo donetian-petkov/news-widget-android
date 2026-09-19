@@ -130,6 +130,7 @@ data class AiUsageRecord(
     val provider: String,
     val storyTitle: String,
     val costCents: Int,
+    val tokens: Int = 0,
 )
 
 data class FeedFetchRecord(

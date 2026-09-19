@@ -6,6 +6,13 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+data class TokenUsage(
+    val inputTokens: Int,
+    val outputTokens: Int,
+) {
+    val total: Int get() = inputTokens + outputTokens
+}
+
 data class StoryEnrichment(
     val neutralTitle: String?,
     val translation: String?,
@@ -82,7 +89,25 @@ class AiEnrichmentClient {
 
         connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
         val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-        return JSONObject(responseText).optString("output_text").trim()
+        val json = JSONObject(responseText)
+        lastTokenUsage = json.optJSONObject("usage")?.let { usage ->
+            TokenUsage(
+                inputTokens = usage.optInt("input_tokens"),
+                outputTokens = usage.optInt("output_tokens"),
+            )
+        } ?: TokenUsage(0, 0)
+        return json.optString("output_text").trim()
+    }
+
+    /** Token counts reported by the last provider call, so usage can show real numbers. */
+    @Volatile
+    var lastTokenUsage: TokenUsage = TokenUsage(0, 0)
+        private set
+
+    fun consumeTokenUsage(): TokenUsage {
+        val usage = lastTokenUsage
+        lastTokenUsage = TokenUsage(0, 0)
+        return usage
     }
 
     fun runActionLocally(story: NewsStory, action: StoryAiAction): String =
