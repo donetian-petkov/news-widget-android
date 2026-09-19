@@ -23,6 +23,12 @@ import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.CircularProgressIndicator
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.glance.currentState
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.cornerRadius
@@ -80,6 +86,15 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+// Per-instance view state lives in Glance's own state: Glance does not watch
+// SharedPreferences, so writes there never triggered a recomposition.
+private val pageIndexKey = intPreferencesKey("page-index")
+private val unreadOnlyKey = booleanPreferencesKey("unread-only")
+private val expandedStoryKey = stringPreferencesKey("expanded-story")
+private val storyCountKey = intPreferencesKey("story-count")
+private val layoutModeKey = stringPreferencesKey("layout-mode")
+private val stackIndexKey = intPreferencesKey("stack-index")
+
 private const val WIDGET_IMAGE_LIMIT = 6
 private const val WIDGET_MAX_ROWS = 12
 private const val STALE_FETCH_MILLIS = 3L * 60L * 1000L
@@ -95,7 +110,17 @@ class NewsWidget : GlanceAppWidget() {
         val imageDiskCache = ImageDiskCache()
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
         val instancePreferences = WidgetInstancePreferences(context)
-        val cachedImages = NewsRepository.state.value.prioritizedStories
+        val visibleForImages = run {
+            val state = NewsRepository.state.value
+            val pageSize = instancePreferences.storyCount(appWidgetId)
+            val page = instancePreferences.pageIndex(appWidgetId)
+            val unreadOnlyNow = instancePreferences.unreadOnly(appWidgetId)
+            state.prioritizedStories
+                .filter { !unreadOnlyNow || !it.isRead }
+                .drop(page * pageSize)
+                .take(pageSize)
+        }
+        val cachedImages = visibleForImages
             .take(WIDGET_IMAGE_LIMIT)
             .mapNotNull { story ->
                 val imageUrl = story.imageUrl ?: return@mapNotNull null
@@ -105,10 +130,11 @@ class NewsWidget : GlanceAppWidget() {
             .toMap()
 
         provideContent {
+            val widgetState = currentState<Preferences>()
             val state = NewsRepository.state.value
             val preset = instancePreferences.presetId(appWidgetId)
                 ?.let { presetId -> state.settings.widgetPresets.firstOrNull { it.id == presetId } }
-            val instanceLayoutMode = instancePreferences.layoutMode(appWidgetId)
+            val instanceLayoutMode = (widgetState[layoutModeKey] ?: instancePreferences.layoutMode(appWidgetId))
                 ?.let { modeName -> runCatching { WidgetLayoutMode.valueOf(modeName) }.getOrNull() }
             val settings = state.settings.copy(
                 widgetFeedSourceId = preset?.feedSourceId ?: state.settings.widgetFeedSourceId,
@@ -118,7 +144,7 @@ class NewsWidget : GlanceAppWidget() {
                 appVibe = preset?.vibe ?: state.settings.appVibe,
                 widgetDensityMode = preset?.densityMode ?: state.settings.widgetDensityMode,
                 widgetTypographyMode = preset?.typographyMode ?: state.settings.widgetTypographyMode,
-                widgetStackIndex = instancePreferences.stackIndex(appWidgetId),
+                widgetStackIndex = widgetState[stackIndexKey] ?: instancePreferences.stackIndex(appWidgetId),
             )
             val selectedFeedIds = settings.effectiveWidgetFeedSourceIds().toSet()
             val showFilteredFeed = WIDGET_FILTERED_FEED in selectedFeedIds
@@ -136,13 +162,14 @@ class NewsWidget : GlanceAppWidget() {
                 state.prioritizedStories.filter { story ->
                     selectedFeedTitles.isEmpty() || story.source in selectedFeedTitles
                 }
-            }.filter { story -> !instancePreferences.unreadOnly(appWidgetId) || !story.isRead }
+            }.filter { story -> !(widgetState[unreadOnlyKey] ?: false) || !story.isRead }
             val size = LocalSize.current
             val metrics = widgetMetrics(settings.widgetDensityMode)
             val type = widgetTypography(settings.widgetTypographyMode, settings.widgetFontScale)
-            val preferredStoryCount = instancePreferences.storyCount(appWidgetId)
-            val unreadOnly = instancePreferences.unreadOnly(appWidgetId)
-            val expandedStoryId = instancePreferences.expandedStoryId(appWidgetId)
+            val preferredStoryCount = (widgetState[storyCountKey] ?: instancePreferences.storyCount(appWidgetId))
+                .coerceIn(5, 20)
+            val unreadOnly = widgetState[unreadOnlyKey] ?: instancePreferences.unreadOnly(appWidgetId)
+            val expandedStoryId = widgetState[expandedStoryKey] ?: instancePreferences.expandedStoryId(appWidgetId)
             val tokensToday = state.usageRecords
                 .filter { it.createdAt > System.currentTimeMillis() - 24L * 60 * 60 * 1000 }
                 .sumOf { it.tokens }
@@ -159,7 +186,7 @@ class NewsWidget : GlanceAppWidget() {
             } else {
                 ((allWidgetStories.size + storyLimit - 1) / storyLimit).coerceAtLeast(1)
             }
-            val pageIndex = instancePreferences.pageIndex(appWidgetId).coerceAtMost(pageCount - 1)
+            val pageIndex = (widgetState[pageIndexKey] ?: 0).coerceIn(0, pageCount - 1)
             val firstStoryNumber = pageIndex * storyLimit + 1
             // A fetch that died with the process would otherwise leave the spinner up forever.
             val fetching = state.runtime.lastFetchStatus == FetchStatus.Fetching &&
@@ -185,6 +212,11 @@ class NewsWidget : GlanceAppWidget() {
             )
             val darkTheme = settings.appVibe.isDark(systemInDarkMode)
             val buttonBackground = if (darkTheme) R.drawable.widget_button_dark else R.drawable.widget_button_light
+            val flatButtonBackground = if (darkTheme) {
+                R.drawable.widget_button_flat_dark
+            } else {
+                R.drawable.widget_button_flat_light
+            }
             val cardBackground = if (darkTheme) R.drawable.widget_card_dark else R.drawable.widget_card_light
             LocalContext.current
 
@@ -309,7 +341,7 @@ class NewsWidget : GlanceAppWidget() {
                             // carries the "more" control instead.
                             val hasNextPage = pageIndex < pageCount - 1
                             val footerAction = if (hasNextPage) {
-                                actionRunCallback<NextPageAction>()
+                                actionRunCallback<NextPageAction>(actionParametersOf(appWidgetIdKey to appWidgetId))
                             } else {
                                 actionRunCallback<RefreshAction>()
                             }
@@ -354,8 +386,9 @@ class NewsWidget : GlanceAppWidget() {
                         val (story, showDivider) = storyRows[index]
                         WidgetStoryRow(
                             story = story,
+                            widgetId = appWidgetId,
                             showDivider = showDivider,
-                            expanded = story.id == expandedStoryId,
+                            expanded = expandedStoryId.orEmpty().isNotEmpty() && story.id == expandedStoryId,
                             isAlert = state.alertMatches.any { it.storyId == story.id },
                             thumbnail = cachedImages[story.id]
                                 .takeIf { size.width >= 220.dp && size.height >= 150.dp },
@@ -369,7 +402,7 @@ class NewsWidget : GlanceAppWidget() {
                                 size.width >= 260.dp &&
                                 size.height >= metrics.summaryHeightThreshold,
                             showExtraActions = size.width >= 300.dp,
-                            buttonBackground = buttonBackground,
+                            buttonBackground = flatButtonBackground,
                             cardBackground = cardBackground,
                             palette = palette,
                             metrics = metrics,
@@ -379,58 +412,11 @@ class NewsWidget : GlanceAppWidget() {
                 }
 
                 if (!stackMode && showActions) {
-                    Spacer(GlanceModifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        WidgetIconButton(
-                            iconRes = R.drawable.ic_unread,
-                            contentDescription = if (unreadOnly) "Show every story" else "Show unread only",
-                            action = actionRunCallback<ToggleUnreadOnlyAction>(),
-                            backgroundRes = buttonBackground,
-                            tint = if (unreadOnly) palette.statusText else palette.muted,
-                            compact = true,
-                        )
-                        if (allWidgetStories.size > stories.size) {
-                            WidgetIconButton(
-                                iconRes = R.drawable.ic_expand_more,
-                                contentDescription = "Show more stories",
-                                action = actionRunCallback<ShowMoreStoriesAction>(),
-                                backgroundRes = buttonBackground,
-                                tint = palette.muted,
-                            )
-                        }
-                        if (pageIndex > 0) {
-                            WidgetIconButton(
-                                iconRes = R.drawable.ic_arrow_up,
-                                contentDescription = "Back to the newest stories",
-                                action = actionRunCallback<ResetPageAction>(),
-                                backgroundRes = buttonBackground,
-                                tint = palette.statusText,
-                                compact = true,
-                            )
-                        }
-                        WidgetIconButton(
-                            iconRes = R.drawable.ic_done_all,
-                            contentDescription = "Mark everything read",
-                            action = actionRunCallback<MarkAllReadAction>(),
-                            backgroundRes = buttonBackground,
-                            tint = palette.muted,
-                            compact = true,
-                        )
-                        WidgetIconButton(
-                            iconRes = R.drawable.ic_settings,
-                            contentDescription = "Widget settings",
-                            action = actionRunCallback<OpenWidgetSettingsAction>(),
-                            backgroundRes = buttonBackground,
-                            tint = palette.muted,
-                            compact = true,
-                        )
-                        if (fetching) {
-                            CircularProgressIndicator(
-                                color = ColorProvider(palette.statusText),
-                                modifier = GlanceModifier.size(14.dp),
-                            )
-                            Spacer(GlanceModifier.width(6.dp))
-                        }
+                    Spacer(GlanceModifier.height(6.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = GlanceModifier.fillMaxWidth(),
+                    ) {
                         Text(
                             text = when {
                                 fetching -> "Fetching"
@@ -443,6 +429,41 @@ class NewsWidget : GlanceAppWidget() {
                                 fontSize = type.meta,
                             ),
                             maxLines = 1,
+                            modifier = GlanceModifier.defaultWeight(),
+                        )
+                        if (pageIndex > 0) {
+                            WidgetIconButton(
+                                iconRes = R.drawable.ic_arrow_up,
+                                contentDescription = "Back to the newest stories",
+                                action = actionRunCallback<ResetPageAction>(actionParametersOf(appWidgetIdKey to appWidgetId)),
+                                backgroundRes = flatButtonBackground,
+                                tint = palette.statusText,
+                                compact = true,
+                            )
+                        }
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_unread,
+                            contentDescription = if (unreadOnly) "Show every story" else "Show unread only",
+                            action = actionRunCallback<ToggleUnreadOnlyAction>(actionParametersOf(appWidgetIdKey to appWidgetId)),
+                            backgroundRes = flatButtonBackground,
+                            tint = if (unreadOnly) palette.statusText else palette.muted,
+                            compact = true,
+                        )
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_done_all,
+                            contentDescription = "Mark everything read",
+                            action = actionRunCallback<MarkAllReadAction>(actionParametersOf(appWidgetIdKey to appWidgetId)),
+                            backgroundRes = flatButtonBackground,
+                            tint = palette.muted,
+                            compact = true,
+                        )
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_settings,
+                            contentDescription = "Widget settings",
+                            action = actionRunCallback<OpenWidgetSettingsAction>(actionParametersOf(appWidgetIdKey to appWidgetId)),
+                            backgroundRes = flatButtonBackground,
+                            tint = palette.muted,
+                            compact = true,
                         )
                     }
                 }
@@ -497,6 +518,7 @@ class NewsWidget : GlanceAppWidget() {
 @androidx.compose.runtime.Composable
 private fun WidgetStoryRow(
     story: NewsStory,
+    widgetId: Int,
     showDivider: Boolean,
     expanded: Boolean,
     isAlert: Boolean,
@@ -539,6 +561,7 @@ private fun WidgetStoryRow(
             if (thumbnail == null) {
                 StoryTextBlock(
                     story = story,
+                    widgetId = widgetId,
                     isAlert = isAlert,
                     showSummary = showSummary || expanded,
                     expanded = expanded,
@@ -558,6 +581,7 @@ private fun WidgetStoryRow(
                     Spacer(GlanceModifier.width(metrics.thumbnailGap))
                     StoryTextBlock(
                         story = story,
+                        widgetId = widgetId,
                         isAlert = isAlert,
                         showSummary = showSummary || expanded,
                         expanded = expanded,
@@ -573,7 +597,7 @@ private fun WidgetStoryRow(
                         iconRes = R.drawable.ic_bookmark,
                         contentDescription = if (story.isSaved) "Remove from library" else "Save story",
                         action = actionRunCallback<ToggleSaveStoryAction>(
-                            actionParametersOf(storyIdKey to story.id),
+                            actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                         ),
                         backgroundRes = buttonBackground,
                         tint = if (story.isSaved) palette.pinText else palette.muted,
@@ -583,7 +607,7 @@ private fun WidgetStoryRow(
                         iconRes = R.drawable.ic_share,
                         contentDescription = "Share story",
                         action = actionRunCallback<ShareStoryAction>(
-                            actionParametersOf(storyIdKey to story.id),
+                            actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                         ),
                         backgroundRes = buttonBackground,
                         tint = palette.muted,
@@ -593,7 +617,7 @@ private fun WidgetStoryRow(
                         iconRes = R.drawable.ic_hide,
                         contentDescription = "Hide story",
                         action = actionRunCallback<HideStoryAction>(
-                            actionParametersOf(storyIdKey to story.id),
+                            actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                         ),
                         backgroundRes = buttonBackground,
                         tint = palette.muted,
@@ -603,7 +627,7 @@ private fun WidgetStoryRow(
                         iconRes = if (expanded) R.drawable.ic_collapse_less else R.drawable.ic_expand_more,
                         contentDescription = if (expanded) "Show less" else "Show the whole story",
                         action = actionRunCallback<ToggleExpandStoryAction>(
-                            actionParametersOf(storyIdKey to story.id),
+                            actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                         ),
                         backgroundRes = buttonBackground,
                         tint = if (expanded) palette.statusText else palette.muted,
@@ -617,7 +641,7 @@ private fun WidgetStoryRow(
                         iconRes = R.drawable.ic_open,
                         contentDescription = "Open source",
                         action = actionRunCallback<OpenStoryAction>(
-                            actionParametersOf(storyIdKey to story.id),
+                            actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                         ),
                         backgroundRes = buttonBackground,
                         tint = palette.header,
@@ -626,7 +650,7 @@ private fun WidgetStoryRow(
                         iconRes = R.drawable.ic_pin,
                         contentDescription = if (story.isPinned) "Unpin story" else "Pin story",
                         action = actionRunCallback<TogglePinStoryAction>(
-                            actionParametersOf(storyIdKey to story.id),
+                            actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                         ),
                         backgroundRes = buttonBackground,
                         tint = if ("TogglePinStoryAction" == "TogglePinStoryAction" && story.isPinned) palette.pinText else palette.header,
@@ -635,7 +659,7 @@ private fun WidgetStoryRow(
                         iconRes = R.drawable.ic_hide,
                         contentDescription = "Hide story",
                         action = actionRunCallback<HideStoryAction>(
-                            actionParametersOf(storyIdKey to story.id),
+                            actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                         ),
                         backgroundRes = buttonBackground,
                         tint = if ("HideStoryAction" == "TogglePinStoryAction" && story.isPinned) palette.pinText else palette.header,
@@ -645,7 +669,7 @@ private fun WidgetStoryRow(
                             iconRes = R.drawable.ic_copy,
                             contentDescription = "Copy link",
                             action = actionRunCallback<CopyStoryLinkAction>(
-                                actionParametersOf(storyIdKey to story.id),
+                                actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                             ),
                             backgroundRes = buttonBackground,
                             tint = palette.header,
@@ -654,7 +678,7 @@ private fun WidgetStoryRow(
                             iconRes = R.drawable.ic_share,
                             contentDescription = "Share story",
                             action = actionRunCallback<ShareStoryAction>(
-                                actionParametersOf(storyIdKey to story.id),
+                                actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                             ),
                             backgroundRes = buttonBackground,
                             tint = palette.header,
@@ -744,6 +768,7 @@ private fun FeedDivider(
 @androidx.compose.runtime.Composable
 private fun StoryTextBlock(
     story: NewsStory,
+    widgetId: Int,
     isAlert: Boolean,
     showSummary: Boolean,
     expanded: Boolean,
@@ -996,10 +1021,12 @@ class NextPageAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
-        val preferences = WidgetInstancePreferences(context)
-        preferences.setPageIndex(appWidgetId, preferences.pageIndex(appWidgetId) + 1)
-        NewsWidget().updateAll(context)
+        val appWidgetId = parameters.widgetId(context, glanceId)
+        editWidgetState(context, appWidgetId, glanceId) { prefs ->
+            val next = (prefs[pageIndexKey] ?: 0) + 1
+            prefs[pageIndexKey] = next
+            WidgetInstancePreferences(context).setPageIndex(appWidgetId, next)
+        }
     }
 }
 
@@ -1009,9 +1036,11 @@ class ResetPageAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
-        WidgetInstancePreferences(context).setPageIndex(appWidgetId, 0)
-        NewsWidget().updateAll(context)
+        val appWidgetId = parameters.widgetId(context, glanceId)
+        editWidgetState(context, appWidgetId, glanceId) { prefs ->
+            prefs[pageIndexKey] = 0
+            WidgetInstancePreferences(context).setPageIndex(appWidgetId, 0)
+        }
     }
 }
 
@@ -1022,9 +1051,12 @@ class ToggleExpandStoryAction : ActionCallback {
         parameters: ActionParameters,
     ) {
         val storyId = parameters[storyIdKey] ?: return
-        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
-        WidgetInstancePreferences(context).toggleExpandedStory(appWidgetId, storyId)
-        NewsWidget().updateAll(context)
+        val appWidgetId = parameters.widgetId(context, glanceId)
+        editWidgetState(context, appWidgetId, glanceId) { prefs ->
+            val next = if (prefs[expandedStoryKey] == storyId) "" else storyId
+            prefs[expandedStoryKey] = next
+            WidgetInstancePreferences(context).toggleExpandedStory(appWidgetId, storyId)
+        }
     }
 }
 
@@ -1034,10 +1066,13 @@ class ToggleUnreadOnlyAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
-        val preferences = WidgetInstancePreferences(context)
-        preferences.saveUnreadOnly(appWidgetId, !preferences.unreadOnly(appWidgetId))
-        NewsWidget().updateAll(context)
+        val appWidgetId = parameters.widgetId(context, glanceId)
+        editWidgetState(context, appWidgetId, glanceId) { prefs ->
+            val next = !(prefs[unreadOnlyKey] ?: false)
+            prefs[unreadOnlyKey] = next
+            prefs[pageIndexKey] = 0
+            WidgetInstancePreferences(context).saveUnreadOnly(appWidgetId, next)
+        }
     }
 }
 
@@ -1047,10 +1082,12 @@ class ShowMoreStoriesAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
-        val preferences = WidgetInstancePreferences(context)
-        preferences.saveStoryCount(appWidgetId, preferences.storyCount(appWidgetId) + 10)
-        NewsWidget().updateAll(context)
+        val appWidgetId = parameters.widgetId(context, glanceId)
+        editWidgetState(context, appWidgetId, glanceId) { prefs ->
+            val next = ((prefs[storyCountKey] ?: 12) + 4).coerceAtMost(20)
+            prefs[storyCountKey] = next
+            WidgetInstancePreferences(context).saveStoryCount(appWidgetId, next)
+        }
     }
 }
 
@@ -1061,6 +1098,7 @@ class MarkAllReadAction : ActionCallback {
         parameters: ActionParameters,
     ) {
         NewsRepository.markAllRead()
+        refreshWidget(context, parameters.widgetId(context, glanceId), glanceId)
         NewsWidget().updateAll(context)
     }
 }
@@ -1072,6 +1110,7 @@ class ToggleSaveStoryAction : ActionCallback {
         parameters: ActionParameters,
     ) {
         parameters[storyIdKey]?.let(NewsRepository::toggleSaved)
+        refreshWidget(context, parameters.widgetId(context, glanceId), glanceId)
         NewsWidget().updateAll(context)
     }
 }
@@ -1082,7 +1121,7 @@ class OpenWidgetSettingsAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        val appWidgetId = parameters.widgetId(context, glanceId)
         val intent = Intent(context, NewsWidgetConfigureActivity::class.java).apply {
             putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -1126,18 +1165,21 @@ class ToggleWidgetLayoutAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        val appWidgetId = parameters.widgetId(context, glanceId)
         val preferences = WidgetInstancePreferences(context)
         val presetLayout = preferences.presetId(appWidgetId)
             ?.let { presetId -> NewsRepository.state.value.settings.widgetPresets.firstOrNull { it.id == presetId } }
             ?.layoutMode
-        val current = preferences.layoutMode(appWidgetId)
-            ?.let { runCatching { WidgetLayoutMode.valueOf(it) }.getOrNull() }
-            ?: presetLayout
-            ?: NewsRepository.state.value.settings.widgetLayoutMode
-        val next = if (current == WidgetLayoutMode.Stack) WidgetLayoutMode.Column else WidgetLayoutMode.Stack
-        preferences.saveLayoutMode(appWidgetId, next.name)
-        NewsWidget().updateAll(context)
+        editWidgetState(context, appWidgetId, glanceId) { prefs ->
+            val current = (prefs[layoutModeKey] ?: preferences.layoutMode(appWidgetId))
+                ?.let { runCatching { WidgetLayoutMode.valueOf(it) }.getOrNull() }
+                ?: presetLayout
+                ?: NewsRepository.state.value.settings.widgetLayoutMode
+            val next = if (current == WidgetLayoutMode.Stack) WidgetLayoutMode.Column else WidgetLayoutMode.Stack
+            prefs[layoutModeKey] = next.name
+            prefs[pageIndexKey] = 0
+            preferences.saveLayoutMode(appWidgetId, next.name)
+        }
     }
 }
 
@@ -1147,15 +1189,17 @@ class ToggleWidgetStoryCountAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
-        val preferences = WidgetInstancePreferences(context)
-        val nextCount = when (preferences.storyCount(appWidgetId)) {
-            in 0..7 -> 12
-            in 8..14 -> 20
-            else -> 6
+        val appWidgetId = parameters.widgetId(context, glanceId)
+        editWidgetState(context, appWidgetId, glanceId) { prefs ->
+            val next = when (prefs[storyCountKey] ?: 12) {
+                in 0..7 -> 12
+                in 8..14 -> 20
+                else -> 6
+            }
+            prefs[storyCountKey] = next
+            prefs[pageIndexKey] = 0
+            WidgetInstancePreferences(context).saveStoryCount(appWidgetId, next)
         }
-        preferences.saveStoryCount(appWidgetId, nextCount)
-        NewsWidget().updateAll(context)
     }
 }
 
@@ -1165,9 +1209,11 @@ class PreviousStackStoryAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
-        WidgetInstancePreferences(context).moveStack(appWidgetId, -1)
-        NewsWidget().updateAll(context)
+        val appWidgetId = parameters.widgetId(context, glanceId)
+        editWidgetState(context, appWidgetId, glanceId) { prefs ->
+            prefs[stackIndexKey] = (prefs[stackIndexKey] ?: 0) - 1
+            WidgetInstancePreferences(context).moveStack(appWidgetId, -1)
+        }
     }
 }
 
@@ -1177,9 +1223,11 @@ class NextStackStoryAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
-        WidgetInstancePreferences(context).moveStack(appWidgetId, 1)
-        NewsWidget().updateAll(context)
+        val appWidgetId = parameters.widgetId(context, glanceId)
+        editWidgetState(context, appWidgetId, glanceId) { prefs ->
+            prefs[stackIndexKey] = (prefs[stackIndexKey] ?: 0) + 1
+            WidgetInstancePreferences(context).moveStack(appWidgetId, 1)
+        }
     }
 }
 
@@ -1190,6 +1238,7 @@ class HideStoryAction : ActionCallback {
         parameters: ActionParameters,
     ) {
         parameters[storyIdKey]?.let(NewsRepository::hideStory)
+        refreshWidget(context, parameters.widgetId(context, glanceId), glanceId)
         NewsWidget().updateAll(context)
     }
 }
@@ -1201,6 +1250,7 @@ class TogglePinStoryAction : ActionCallback {
         parameters: ActionParameters,
     ) {
         parameters[storyIdKey]?.let(NewsRepository::togglePinned)
+        refreshWidget(context, parameters.widgetId(context, glanceId), glanceId)
         NewsWidget().updateAll(context)
     }
 }
@@ -1269,6 +1319,29 @@ class ShareStoryAction : ActionCallback {
 
 private val storyIdKey = ActionParameters.Key<String>("story-id")
 private val storySectionKey = ActionParameters.Key<String>("story-section")
+private val appWidgetIdKey = ActionParameters.Key<Int>("app-widget-id")
+
+/** Writes this widget's view state and redraws it. */
+private suspend fun editWidgetState(
+    context: Context,
+    appWidgetId: Int,
+    glanceId: GlanceId,
+    edit: (androidx.datastore.preferences.core.MutablePreferences) -> Unit,
+) {
+    val target = runCatching {
+        GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
+    }.getOrDefault(glanceId)
+    updateAppWidgetState(context, target) { prefs -> edit(prefs) }
+    NewsWidget().update(context, target)
+}
+
+private suspend fun refreshWidget(context: Context, appWidgetId: Int, glanceId: GlanceId) {
+    editWidgetState(context, appWidgetId, glanceId) { }
+}
+
+/** List-row actions cannot resolve their widget from the glance id, so it travels with them. */
+private fun ActionParameters.widgetId(context: Context, glanceId: GlanceId): Int =
+    this[appWidgetIdKey] ?: GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
 
 private fun NewsStory.widgetTitle(): String =
     neutralTitle?.takeIf { it.isNotBlank() } ?: title
