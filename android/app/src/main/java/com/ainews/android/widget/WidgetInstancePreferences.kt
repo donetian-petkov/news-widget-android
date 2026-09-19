@@ -43,6 +43,16 @@ class WidgetInstancePreferences(context: Context) {
         prefs.edit().putBoolean(unreadKey(appWidgetId), unreadOnly).apply()
     }
 
+    fun expandedStoryId(appWidgetId: Int): String? =
+        prefs.getString(expandedKey(appWidgetId), null)
+
+    fun toggleExpandedStory(appWidgetId: Int, storyId: String) {
+        val current = expandedStoryId(appWidgetId)
+        prefs.edit().apply {
+            if (current == storyId) remove(expandedKey(appWidgetId)) else putString(expandedKey(appWidgetId), storyId)
+        }.apply()
+    }
+
     fun storyCount(appWidgetId: Int): Int =
         prefs.getInt(countKey(appWidgetId), 15).coerceIn(5, 100)
 
@@ -53,6 +63,8 @@ class WidgetInstancePreferences(context: Context) {
     }
 
     private fun unreadKey(appWidgetId: Int) = "unread-only-$appWidgetId"
+
+    private fun expandedKey(appWidgetId: Int) = "expanded-story-$appWidgetId"
 
     fun moveStack(appWidgetId: Int, offset: Int) {
         prefs.edit()

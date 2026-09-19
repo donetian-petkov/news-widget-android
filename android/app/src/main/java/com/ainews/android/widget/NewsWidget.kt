@@ -141,6 +141,10 @@ class NewsWidget : GlanceAppWidget() {
             val type = widgetTypography(settings.widgetTypographyMode, settings.widgetFontScale)
             val preferredStoryCount = instancePreferences.storyCount(appWidgetId)
             val unreadOnly = instancePreferences.unreadOnly(appWidgetId)
+            val expandedStoryId = instancePreferences.expandedStoryId(appWidgetId)
+            val tokensToday = state.usageRecords
+                .filter { it.createdAt > System.currentTimeMillis() - 24L * 60 * 60 * 1000 }
+                .sumOf { it.tokens }
             val baseStoryLimit = when {
                 size.width < 180.dp || size.height < 130.dp -> 1
                 size.height < 220.dp -> 2
@@ -202,7 +206,10 @@ class NewsWidget : GlanceAppWidget() {
                             maxLines = 1,
                         )
                         Spacer(GlanceModifier.height(3.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = GlanceModifier.clickable(actionRunCallback<RefreshAction>()),
+                        ) {
                             val healthy = state.runtime.runtimeEnabled &&
                                 state.runtime.lastFetchStatus != FetchStatus.Failed
                             StatusDot(healthy = healthy, palette = palette)
@@ -220,6 +227,7 @@ class NewsWidget : GlanceAppWidget() {
                                         state.runtime.lastFetchStatus
                                     },
                                     showClock = showStatusText,
+                                    tokensToday = tokensToday,
                                 ),
                                 style = TextStyle(
                                     color = ColorProvider(if (healthy) palette.muted else palette.warningText),
@@ -285,11 +293,50 @@ class NewsWidget : GlanceAppWidget() {
                 // A LazyColumn keeps every story on screen: a plain Column is capped at ten
                 // children by the remote-views translation, which silently dropped later stories.
                 LazyColumn(modifier = GlanceModifier.defaultWeight()) {
-                    items(storyRows.size) { index ->
+                    items(storyRows.size + 1) { index ->
+                        if (index == storyRows.size) {
+                            // Widgets get no pull gesture from Android, so the end of the list
+                            // carries the "more" control instead.
+                            val hasMoreStored = allWidgetStories.size > storyRows.size
+                            val footerAction = if (hasMoreStored) {
+                                actionRunCallback<ShowMoreStoriesAction>()
+                            } else {
+                                actionRunCallback<RefreshAction>()
+                            }
+                            Column(modifier = GlanceModifier.fillMaxWidth()) {
+                                Row(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = GlanceModifier
+                                        .fillMaxWidth()
+                                        .background(ImageProvider(cardBackground))
+                                        .cornerRadius(12.dp)
+                                        .clickable(footerAction)
+                                        .padding(vertical = 10.dp),
+                                ) {
+                                    Text(
+                                        text = when {
+                                            fetching -> "Fetching new stories"
+                                            hasMoreStored -> "Load more stories"
+                                            else -> "Fetch new stories"
+                                        },
+                                        style = TextStyle(
+                                            color = ColorProvider(palette.muted),
+                                            fontSize = type.meta,
+                                            fontWeight = FontWeight.Medium,
+                                        ),
+                                        maxLines = 1,
+                                    )
+                                }
+                                Spacer(GlanceModifier.height(metrics.cardGap))
+                            }
+                            return@items
+                        }
                         val (story, showDivider) = storyRows[index]
                         WidgetStoryRow(
                             story = story,
                             showDivider = showDivider,
+                            expanded = story.id == expandedStoryId,
                             isAlert = state.alertMatches.any { it.storyId == story.id },
                             thumbnail = cachedImages[story.id]
                                 .takeIf { size.width >= 220.dp && size.height >= 150.dp },
@@ -421,6 +468,7 @@ class NewsWidget : GlanceAppWidget() {
 private fun WidgetStoryRow(
     story: NewsStory,
     showDivider: Boolean,
+    expanded: Boolean,
     isAlert: Boolean,
     thumbnail: android.graphics.Bitmap?,
     actionStyle: WidgetActionStyle,
@@ -462,7 +510,8 @@ private fun WidgetStoryRow(
                 StoryTextBlock(
                     story = story,
                     isAlert = isAlert,
-                    showSummary = showSummary,
+                    showSummary = showSummary || expanded,
+                    expanded = expanded,
                     palette = palette,
                     type = type,
                 )
@@ -480,7 +529,8 @@ private fun WidgetStoryRow(
                     StoryTextBlock(
                         story = story,
                         isAlert = isAlert,
-                        showSummary = showSummary,
+                        showSummary = showSummary || expanded,
+                        expanded = expanded,
                         palette = palette,
                         type = type,
                     )
@@ -517,6 +567,16 @@ private fun WidgetStoryRow(
                         ),
                         backgroundRes = buttonBackground,
                         tint = palette.muted,
+                        compact = true,
+                    )
+                    WidgetIconButton(
+                        iconRes = if (expanded) R.drawable.ic_collapse_less else R.drawable.ic_expand_more,
+                        contentDescription = if (expanded) "Show less" else "Show the whole story",
+                        action = actionRunCallback<ToggleExpandStoryAction>(
+                            actionParametersOf(storyIdKey to story.id),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = if (expanded) palette.statusText else palette.muted,
                         compact = true,
                     )
                 }
@@ -656,6 +716,7 @@ private fun StoryTextBlock(
     story: NewsStory,
     isAlert: Boolean,
     showSummary: Boolean,
+    expanded: Boolean,
     palette: WidgetPalette,
     type: WidgetTypography,
 ) {
@@ -673,7 +734,7 @@ private fun StoryTextBlock(
                 fontWeight = if (story.isRead) FontWeight.Normal else FontWeight.Bold,
                 fontSize = type.title,
             ),
-            maxLines = 2,
+            maxLines = if (expanded) 6 else 2,
         )
         Spacer(GlanceModifier.height(2.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -700,7 +761,7 @@ private fun StoryTextBlock(
                     color = ColorProvider(palette.body),
                     fontSize = type.body,
                 ),
-                maxLines = 3,
+                maxLines = if (expanded) 10 else 3,
             )
         }
     }
@@ -860,6 +921,7 @@ private fun widgetMetaLine(
     fetchEnabled: Boolean,
     status: FetchStatus,
     showClock: Boolean,
+    tokensToday: Int,
 ): String {
     val state = when {
         !runtimeEnabled -> "Paused"
@@ -870,8 +932,12 @@ private fun widgetMetaLine(
     }
     val stories = if (storyCount == 1) "1 story" else "$storyCount stories"
     val mode = if (layoutMode == WidgetLayoutMode.Column) "" else " · one at a time"
-    return if (showClock) "$state · $stories$mode" else "$stories$mode"
+    val tokens = if (tokensToday > 0) " · ${formatTokenCount(tokensToday)} tokens" else ""
+    return if (showClock) "$state · $stories$mode$tokens" else "$stories$mode$tokens"
 }
+
+private fun formatTokenCount(tokens: Int): String =
+    if (tokens >= 1000) "${"%.1f".format(tokens / 1000.0)}k" else tokens.toString()
 
 class NewsWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = NewsWidget()
@@ -892,6 +958,19 @@ enum class WidgetActionStyle {
     None,
     Compact,
     Full,
+}
+
+class ToggleExpandStoryAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val storyId = parameters[storyIdKey] ?: return
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        WidgetInstancePreferences(context).toggleExpandedStory(appWidgetId, storyId)
+        NewsWidget().updateAll(context)
+    }
 }
 
 class ToggleUnreadOnlyAction : ActionCallback {

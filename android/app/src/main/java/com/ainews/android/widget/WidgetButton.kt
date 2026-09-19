@@ -33,7 +33,7 @@ fun WidgetIconButton(
         modifier = GlanceModifier
             .padding(end = if (compact) 6.dp else 8.dp)
             .background(ImageProvider(backgroundRes))
-            .cornerRadius(if (compact) 9.dp else 12.dp)
+            .cornerRadius(if (compact) 12.dp else 16.dp)
             .clickable(action)
             .padding(if (compact) 5.dp else 7.dp),
     ) {
