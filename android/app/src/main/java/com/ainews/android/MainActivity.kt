@@ -8,9 +8,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.ainews.android.data.FeedViewMode
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.StoryDetailSection
 import com.ainews.android.ui.AiNewsApp
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val requestNotifications =
@@ -20,6 +23,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestNotificationPermissionIfNeeded()
         selectIntentStory()
+        handleShortcutIntent()
         setContent {
             AiNewsApp()
         }
@@ -29,6 +33,15 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         selectIntentStory()
+        handleShortcutIntent()
+    }
+
+    private fun handleShortcutIntent() {
+        when (intent?.action) {
+            ACTION_REFRESH -> lifecycleScope.launch { NewsRepository.refreshNow() }
+            ACTION_FILTERED -> NewsRepository.setFeedViewMode(FeedViewMode.Filtered)
+            ACTION_LIBRARY -> NewsRepository.setFeedViewMode(FeedViewMode.Saved)
+        }
     }
 
     private fun selectIntentStory() {
@@ -55,5 +68,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_STORY_ID = "com.ainews.android.extra.STORY_ID"
         const val EXTRA_STORY_SECTION = "com.ainews.android.extra.STORY_SECTION"
+        const val ACTION_REFRESH = "com.ainews.android.action.REFRESH"
+        const val ACTION_FILTERED = "com.ainews.android.action.FILTERED"
+        const val ACTION_LIBRARY = "com.ainews.android.action.LIBRARY"
     }
 }

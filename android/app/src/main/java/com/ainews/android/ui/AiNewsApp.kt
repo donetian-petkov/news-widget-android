@@ -54,11 +54,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
@@ -78,7 +83,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import android.os.Build
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -93,6 +101,7 @@ import com.ainews.android.data.FeedFetchRecord
 import com.ainews.android.data.FeedHealth
 import com.ainews.android.data.FeedSource
 import com.ainews.android.data.FeedViewMode
+import com.ainews.android.data.FontScale
 import com.ainews.android.data.FetchStatus
 import com.ainews.android.data.NewsMonitor
 import com.ainews.android.data.NewsSchedule
@@ -148,7 +157,14 @@ fun AiNewsApp() {
 
     val systemInDarkMode = isSystemInDarkTheme()
     val palette = state.settings.appVibe.palette(systemInDarkMode)
-    val colorScheme = if (state.settings.appVibe.isDark(systemInDarkMode)) {
+    val dynamicColours = state.settings.useMaterialYou && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val colorScheme = if (dynamicColours) {
+        if (state.settings.appVibe.isDark(systemInDarkMode)) {
+            dynamicDarkColorScheme(context)
+        } else {
+            dynamicLightColorScheme(context)
+        }
+    } else if (state.settings.appVibe.isDark(systemInDarkMode)) {
         darkColorScheme(
             background = Color(palette.background),
             surface = Color(palette.panel),
@@ -184,7 +200,14 @@ fun AiNewsApp() {
         scope.launch { NewsWidget().updateAll(context) }
     }
 
-    CompositionLocalProvider(LocalAppPalette provides palette) {
+    val density = LocalDensity.current
+    CompositionLocalProvider(
+        LocalAppPalette provides palette,
+        LocalDensity provides Density(
+            density = density.density,
+            fontScale = density.fontScale * state.settings.appFontScale.scale,
+        ),
+    ) {
     MaterialTheme(colorScheme = colorScheme) {
         ModalNavigationDrawer(
             drawerState = drawerState,
@@ -282,6 +305,7 @@ fun AiNewsApp() {
                             refreshWidget()
                         },
                         onToggleAi = NewsRepository::toggleFeedAi,
+                        onToggleNeutralTitles = NewsRepository::toggleFeedNeutralTitles,
                         onImportOpml = NewsRepository::importOpml,
                         onExportOpml = NewsRepository::exportOpml,
                         onRefresh = {
@@ -342,6 +366,12 @@ fun AiNewsApp() {
                         onRegenerate = {
                             scope.launch {
                                 NewsRepository.regenerateMissingAi()
+                                NewsWidget().updateAll(context)
+                            }
+                        },
+                        onRegenerateKind = { action ->
+                            scope.launch {
+                                NewsRepository.regenerateMissing(action)
                                 NewsWidget().updateAll(context)
                             }
                         },
@@ -420,8 +450,17 @@ fun AiNewsApp() {
                             refreshWidget()
                         },
                         onToggleSaveStory = NewsRepository::toggleSaved,
+                        onToggleReadStory = { storyId, read ->
+                            NewsRepository.markRead(storyId, read)
+                            refreshWidget()
+                        },
                         onShareStory = { shareStory(context, it) },
                         onOpenDrawer = { scope.launch { drawerState.open() } },
+                        onSearch = NewsRepository::setSearchQuery,
+                        onMarkAllRead = {
+                            NewsRepository.markAllRead()
+                            refreshWidget()
+                        },
                     )
                 }
             }
@@ -468,8 +507,11 @@ private fun NewsFeed(
     onHideStory: (String) -> Unit,
     onTogglePinStory: (String) -> Unit,
     onToggleSaveStory: (String) -> Unit,
+    onToggleReadStory: (String, Boolean) -> Unit,
     onShareStory: (NewsStory) -> Unit,
     onOpenDrawer: () -> Unit,
+    onSearch: (String) -> Unit,
+    onMarkAllRead: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -503,19 +545,75 @@ private fun NewsFeed(
                 onOpenDrawer = onOpenDrawer,
                 onDismissOnboarding = onDismissOnboarding,
                 onUseLocalAi = onUseLocalAi,
+                onSearch = onSearch,
+                onMarkAllRead = onMarkAllRead,
             )
         }
 
         items(state.prioritizedStories, key = { it.id }) { story ->
-            StoryCard(
-                isAlert = state.alertMatches.any { it.storyId == story.id },
-                story = story,
-                onOpen = { onOpenStory(story.id) },
-                onHide = { onHideStory(story.id) },
-                onTogglePin = { onTogglePinStory(story.id) },
-                onToggleSave = { onToggleSaveStory(story.id) },
-                onShare = { onShareStory(story) },
+            val swipeState = rememberSwipeToDismissBoxState(
+                confirmValueChange = { value ->
+                    when (value) {
+                        SwipeToDismissBoxValue.StartToEnd -> {
+                            onToggleSaveStory(story.id)
+                            false
+                        }
+
+                        SwipeToDismissBoxValue.EndToStart -> {
+                            onHideStory(story.id)
+                            true
+                        }
+
+                        SwipeToDismissBoxValue.Settled -> false
+                    }
+                },
             )
+            SwipeToDismissBox(
+                state = swipeState,
+                backgroundContent = {
+                    val saving = swipeState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+                    Box(
+                        contentAlignment = if (saving) Alignment.CenterStart else Alignment.CenterEnd,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                if (saving) {
+                                    Color(LocalAppPalette.current.successPanel)
+                                } else {
+                                    Color(LocalAppPalette.current.alertPanel)
+                                },
+                                RoundedCornerShape(8.dp),
+                            )
+                            .padding(horizontal = 24.dp),
+                    ) {
+                        Text(
+                            text = if (saving) {
+                                if (story.isSaved) "Unsave" else "Save"
+                            } else {
+                                "Hide"
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = if (saving) {
+                                Color(LocalAppPalette.current.accentCyan)
+                            } else {
+                                Color(LocalAppPalette.current.accentRose)
+                            },
+                        )
+                    }
+                },
+            ) {
+                StoryCard(
+                    isAlert = state.alertMatches.any { it.storyId == story.id },
+                    story = story,
+                    onOpen = { onOpenStory(story.id) },
+                    onHide = { onHideStory(story.id) },
+                    onTogglePin = { onTogglePinStory(story.id) },
+                    onToggleSave = { onToggleSaveStory(story.id) },
+                    onToggleRead = { onToggleReadStory(story.id, !story.isRead) },
+                    onShare = { onShareStory(story) },
+                )
+            }
         }
 
         if (state.prioritizedStories.isEmpty()) {
@@ -618,8 +716,15 @@ private fun Header(
     onOpenDrawer: () -> Unit,
     onDismissOnboarding: () -> Unit,
     onUseLocalAi: () -> Unit,
+    onSearch: (String) -> Unit,
+    onMarkAllRead: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var searchOpen by remember { mutableStateOf(state.searchQuery.isNotBlank()) }
+    val onToggleSearch = {
+        searchOpen = !searchOpen
+        if (!searchOpen) onSearch("")
+    }
     val hiddenCount = state.stories.count { it.isHidden }
     val aiConfigured = state.settings.aiConfigured
     val aiReady = aiConfigured && state.runtime.runtimeEnabled && state.runtime.aiEnabled
@@ -685,6 +790,18 @@ private fun Header(
                 )
             }
 
+            IconButton(onClick = { onToggleSearch() }) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_search),
+                    contentDescription = if (searchOpen) "Close search" else "Search stories",
+                    tint = if (searchOpen) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                )
+            }
+
             Box {
                 IconButton(onClick = { menuOpen = true }) {
                     Icon(
@@ -715,6 +832,11 @@ private fun Header(
                         text = { Text("Scan monitors") },
                         onClick = { menuOpen = false; onScanMonitors() },
                     )
+                    DropdownMenuItem(
+                        text = { Text("Mark all read (${state.unreadCount})") },
+                        enabled = state.unreadCount > 0,
+                        onClick = { menuOpen = false; onMarkAllRead() },
+                    )
                     if (hiddenCount > 0) {
                         DropdownMenuItem(
                             text = { Text("Restore $hiddenCount hidden") },
@@ -741,6 +863,23 @@ private fun Header(
             }
         }
 
+        if (searchOpen) {
+            OutlinedTextField(
+                value = state.searchQuery,
+                onValueChange = onSearch,
+                label = { Text("Search stories") },
+                singleLine = true,
+                trailingIcon = {
+                    if (state.searchQuery.isNotBlank()) {
+                        TextButton(onClick = { onSearch("") }) {
+                            Text("Clear")
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
         // One scrolling row per filter axis: the wrapped chip grid pushed the news off screen.
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -751,6 +890,13 @@ private fun Header(
                     text = "All stories",
                     selected = state.feedViewMode == FeedViewMode.All,
                     onClick = { onSelectViewMode(FeedViewMode.All) },
+                )
+            }
+            item {
+                HeaderActionButton(
+                    text = "Unread ${state.unreadCount}",
+                    selected = state.feedViewMode == FeedViewMode.Unread,
+                    onClick = { onSelectViewMode(FeedViewMode.Unread) },
                 )
             }
             item {
@@ -1151,6 +1297,7 @@ private fun FeedSourceScreen(
     onResetFeeds: () -> Unit,
     onToggleFetch: (String) -> Unit,
     onToggleAi: (String) -> Unit,
+    onToggleNeutralTitles: (String) -> Unit,
     onImportOpml: (String) -> Int,
     onExportOpml: () -> String,
     onRefresh: () -> Unit,
@@ -1289,6 +1436,11 @@ private fun FeedSourceScreen(
                         label = "Run AI on this feed",
                         checked = source.aiEnabled,
                         onCheckedChange = { onToggleAi(source.id) },
+                    )
+                    ToggleRow(
+                        label = "Rewrite headlines neutrally",
+                        checked = source.neutralTitlesEnabled,
+                        onCheckedChange = { onToggleNeutralTitles(source.id) },
                     )
                     TextButton(onClick = { onDeleteFeed(source.id) }) {
                         Text("Remove")
@@ -1508,6 +1660,23 @@ private fun SettingsScreen(
     var keyDraft by remember { mutableStateOf("") }
     var presetNameDraft by remember { mutableStateOf("") }
     var widgetRefreshToken by remember { mutableStateOf(0) }
+    val backupExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                stream.write(NewsRepository.exportBackup().toByteArray())
+            }
+        }
+    }
+    val backupImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        val json = runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        }.getOrNull()
+        if (json != null) NewsRepository.importBackup(json)
+    }
     val widgetInstances by produceState<List<WidgetInstanceInfo>>(initialValue = emptyList(), widgetRefreshToken) {
         value = loadWidgetInstances(context)
     }
@@ -1622,6 +1791,88 @@ private fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+
+        item {
+            SettingsSection("Appearance") {
+                Text(
+                    text = "App text size",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    FontScale.values().forEach { scale ->
+                        TopicChip(
+                            text = scale.label,
+                            selected = draft.appFontScale == scale,
+                            onClick = { draft = draft.copy(appFontScale = scale) },
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Widget text size",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    FontScale.values().forEach { scale ->
+                        TopicChip(
+                            text = scale.label,
+                            selected = draft.widgetFontScale == scale,
+                            onClick = { draft = draft.copy(widgetFontScale = scale) },
+                        )
+                    }
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    ToggleRow(
+                        label = "Use wallpaper colours",
+                        description = "Material You picks the palette from your wallpaper",
+                        checked = draft.useMaterialYou,
+                        onCheckedChange = { draft = draft.copy(useMaterialYou = it) },
+                    )
+                }
+            }
+        }
+
+        item {
+            SettingsSection("Notifications") {
+                ToggleRow(
+                    label = "Tell me about keyword matches",
+                    description = "Notify when a fetch brings in a story matching your keywords",
+                    checked = draft.notifyOnKeywordMatch,
+                    onCheckedChange = { draft = draft.copy(notifyOnKeywordMatch = it) },
+                )
+            }
+        }
+
+        item {
+            SettingsSection("Backup") {
+                Text(
+                    text = "Saves feeds, monitors, keywords, schedules and widget presets to a file. Stories come back on the next fetch.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { backupExportLauncher.launch("ai-news-backup.json") }) {
+                        Text("Export backup")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            backupImportLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                        },
+                    ) {
+                        Text("Restore backup")
+                    }
+                }
             }
         }
 
@@ -2057,6 +2308,7 @@ private fun StoryCard(
     onHide: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleSave: () -> Unit,
+    onToggleRead: () -> Unit,
     onShare: () -> Unit,
 ) {
     val palette = LocalAppPalette.current
@@ -2099,8 +2351,12 @@ private fun StoryCard(
             Text(
                 text = story.displayTitle(),
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (story.isRead) FontWeight.Normal else FontWeight.Bold,
+                color = if (story.isRead) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
             )
             Text(
                 text = story.summary,
@@ -2126,21 +2382,45 @@ private fun StoryCard(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Two buttons and a menu: six side by side ran off the card.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                TextButton(onClick = onOpen) {
+                    Text("Read story")
+                }
                 TextButton(onClick = onShare) {
                     Text("Share")
                 }
-                TextButton(onClick = onHide) {
-                    Text("Hide")
-                }
-                TextButton(onClick = onTogglePin) {
-                    Text(if (story.isPinned) "Unpin" else "Pin")
-                }
-                TextButton(onClick = onToggleSave) {
-                    Text(if (story.isSaved) "Unsave" else "Save")
-                }
-                TextButton(onClick = onOpen) {
-                    Text("Open")
+                Spacer(Modifier.weight(1f))
+                var cardMenuOpen by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { cardMenuOpen = true }) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_more_vert),
+                            contentDescription = "Story actions",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    DropdownMenu(expanded = cardMenuOpen, onDismissRequest = { cardMenuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(if (story.isSaved) "Remove from library" else "Save to library") },
+                            onClick = { cardMenuOpen = false; onToggleSave() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (story.isPinned) "Unpin" else "Pin to top") },
+                            onClick = { cardMenuOpen = false; onTogglePin() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (story.isRead) "Mark unread" else "Mark read") },
+                            onClick = { cardMenuOpen = false; onToggleRead() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Hide") },
+                            onClick = { cardMenuOpen = false; onHide() },
+                        )
+                    }
                 }
             }
         }
@@ -2740,6 +3020,7 @@ private fun SourcesScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UsageScreen(
     state: NewsUiState,
@@ -2747,6 +3028,7 @@ private fun UsageScreen(
     onReset: () -> Unit,
     onToggleAi: () -> Unit,
     onRegenerate: () -> Unit,
+    onRegenerateKind: (StoryAiAction) -> Unit,
 ) {
     val totalCents = state.usageRecords.sumOf { it.costCents }
     val byAction = state.usageRecords.groupBy { it.action }
@@ -2787,6 +3069,23 @@ private fun UsageScreen(
                     }
                     OutlinedButton(onClick = onToggleAi) {
                         Text(if (state.runtime.aiEnabled) "Pause AI" else "Resume AI")
+                    }
+                }
+                Text(
+                    text = "Fill one kind at a time",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    StoryAiAction.values().forEach { action ->
+                        HeaderActionButton(
+                            text = action.label,
+                            enabled = state.runtime.runtimeEnabled && state.runtime.aiEnabled,
+                            onClick = { onRegenerateKind(action) },
+                        )
                     }
                 }
             }

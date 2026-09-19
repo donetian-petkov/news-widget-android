@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="refresh"
+        android:enabled="true"
+        android:icon="@drawable/ic_refresh"
+        android:shortcutShortLabel="@string/shortcut_refresh"
+        android:shortcutLongLabel="@string/shortcut_refresh">
+        <intent
+            android:action="com.ainews.android.action.REFRESH"
+            android:targetClass="com.ainews.android.MainActivity"
+            android:targetPackage="com.ainews.android" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="filtered"
+        android:enabled="true"
+        android:icon="@drawable/ic_feeds"
+        android:shortcutShortLabel="@string/shortcut_filtered"
+        android:shortcutLongLabel="@string/shortcut_filtered">
+        <intent
+            android:action="com.ainews.android.action.FILTERED"
+            android:targetClass="com.ainews.android.MainActivity"
+            android:targetPackage="com.ainews.android" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="library"
+        android:enabled="true"
+        android:icon="@drawable/ic_pin"
+        android:shortcutShortLabel="@string/shortcut_library"
+        android:shortcutLongLabel="@string/shortcut_library">
+        <intent
+            android:action="com.ainews.android.action.LIBRARY"
+            android:targetClass="com.ainews.android.MainActivity"
+            android:targetPackage="com.ainews.android" />
+    </shortcut>
+</shortcuts>

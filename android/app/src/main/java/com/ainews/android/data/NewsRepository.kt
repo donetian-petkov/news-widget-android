@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.time.LocalDate
 
 object NewsRepository {
@@ -103,7 +105,11 @@ object NewsRepository {
             AiNewsDatabase::class.java,
             "ai-news.db",
         )
-            .addMigrations(AiNewsDatabase.MIGRATION_1_2, AiNewsDatabase.MIGRATION_2_3)
+            .addMigrations(
+                AiNewsDatabase.MIGRATION_1_2,
+                AiNewsDatabase.MIGRATION_2_3,
+                AiNewsDatabase.MIGRATION_3_4,
+            )
             .build()
 
         storyDao = database.storyDao()
@@ -177,6 +183,7 @@ object NewsRepository {
     )
 
     fun selectStory(storyId: String?, section: StoryDetailSection = StoryDetailSection.Story) {
+        storyId?.let { markRead(it) }
         _state.update { it.copy(selectedStoryId = storyId, selectedStorySection = section, message = null) }
     }
 
@@ -647,6 +654,10 @@ object NewsRepository {
 
         val refreshResult = StoryRefreshMerger.merge(_state.value.stories, fetchedStories)
         val storiesToStore = refreshResult.stories
+        val previousIds = _state.value.stories.map { it.id }.toSet()
+        val keywordArrivals = storiesToStore
+            .filter { it.id !in previousIds }
+            .filter { KeywordMatcher.matches(settings.keywords, it) }
 
         _state.update { current ->
             val runtime = current.runtime.copy(
@@ -659,6 +670,9 @@ object NewsRepository {
                 stories = storiesToStore,
                 message = refreshResult.message,
             )
+        }
+        if (settings.notifyOnKeywordMatch && keywordArrivals.isNotEmpty()) {
+            AlertNotifier(appContext).notifyKeywordMatches(keywordArrivals, settings.keywords)
         }
         withContext(Dispatchers.IO) {
             storyDao.upsertStories(storiesToStore.map { it.toEntity() })
@@ -711,12 +725,152 @@ object NewsRepository {
         }
     }
 
+    fun setSearchQuery(query: String) {
+        _state.update { it.copy(searchQuery = query) }
+    }
+
+    fun markRead(storyId: String, read: Boolean = true) {
+        val readAt = if (read) System.currentTimeMillis() else null
+        repositoryScope.launch { storyDao.setRead(storyId, read, readAt) }
+        _state.update { current ->
+            current.copy(
+                stories = current.stories.map {
+                    if (it.id == storyId) it.copy(isRead = read, readAt = readAt) else it
+                },
+            )
+        }
+    }
+
+    fun markAllRead() {
+        val readAt = System.currentTimeMillis()
+        repositoryScope.launch { storyDao.markAllRead(readAt) }
+        _state.update { current ->
+            current.copy(
+                stories = current.stories.map {
+                    if (it.isHidden || it.isRead) it else it.copy(isRead = true, readAt = readAt)
+                },
+                message = "All stories marked read",
+            )
+        }
+    }
+
+    /** Fills in one AI field for every story still missing it. */
+    suspend fun regenerateMissing(action: StoryAiAction, limit: Int = 10) {
+        val current = _state.value
+        val candidates = current.prioritizedStories
+            .filter { aiEnabledForStory(current.feedSources, it) }
+            .filter { story ->
+                when (action) {
+                    StoryAiAction.Summary -> story.summary.isBlank()
+                    StoryAiAction.Research -> story.research.isNullOrBlank()
+                    StoryAiAction.Translation -> story.translation.isNullOrBlank()
+                    StoryAiAction.NeutralTitle ->
+                        story.neutralTitle.isNullOrBlank() && neutralTitlesEnabledForStory(current.feedSources, story)
+                }
+            }
+            .take(limit)
+
+        if (candidates.isEmpty()) {
+            _state.update { it.copy(message = "Nothing is missing ${action.label.lowercase()}") }
+            return
+        }
+        _state.update { it.copy(message = "Running ${action.label.lowercase()} for ${candidates.size} stories") }
+        candidates.forEach { story -> runStoryAction(story.id, action) }
+        _state.update { it.copy(message = "${action.label} filled for ${candidates.size} stories") }
+    }
+
+    /** Writes everything the app knows into one JSON document the user can keep. */
+    fun exportBackup(): String {
+        val current = _state.value
+        return JSONObject()
+            .put("version", 1)
+            .put("exportedAt", System.currentTimeMillis())
+            .put("feedSources", JSONArray(RuntimePreferencesCodec.feedSourcesToJson(current.feedSources)))
+            .put("monitors", JSONArray(RuntimePreferencesCodec.monitorsToJson(current.monitors)))
+            .put("keywords", JSONArray(current.settings.keywords))
+            .put("schedules", JSONArray(RuntimePreferencesCodec.schedulesToJson(current.schedules)))
+            .put("widgetPresets", JSONArray(RuntimePreferencesCodec.widgetPresetsToJson(current.settings.widgetPresets)))
+            .put("savedStoryIds", JSONArray(current.savedStories.map { it.id }))
+            .toString(2)
+    }
+
+    /** Restores a backup produced by [exportBackup]. Stories themselves come back on the next fetch. */
+    fun importBackup(json: String): Boolean {
+        val parsed = runCatching { JSONObject(json) }.getOrNull() ?: run {
+            _state.update { it.copy(message = "That file is not an AI News backup") }
+            return false
+        }
+        val feedSources = parsed.optJSONArray("feedSources")
+            ?.let { RuntimePreferencesCodec.feedSourcesFromJson(it.toString()) }
+            .orEmpty()
+        val monitors = parsed.optJSONArray("monitors")
+            ?.let { RuntimePreferencesCodec.monitorsFromJson(it.toString()) }
+            .orEmpty()
+        val schedules = parsed.optJSONArray("schedules")
+            ?.let { RuntimePreferencesCodec.schedulesFromJson(it.toString()) }
+            .orEmpty()
+        val presets = parsed.optJSONArray("widgetPresets")
+            ?.let { RuntimePreferencesCodec.widgetPresetsFromJson(it.toString()) }
+            .orEmpty()
+        val keywords = parsed.optJSONArray("keywords")?.let { array ->
+            buildList {
+                for (index in 0 until array.length()) {
+                    array.optString(index).takeIf { it.isNotBlank() }?.let(::add)
+                }
+            }
+        }.orEmpty()
+
+        if (feedSources.isNotEmpty()) persistFeedSources(feedSources)
+        if (monitors.isNotEmpty()) persistMonitors(monitors)
+        if (schedules.isNotEmpty()) persistSchedules(schedules)
+
+        _state.update { current ->
+            val settings = current.settings.copy(
+                keywords = keywords.ifEmpty { current.settings.keywords },
+                widgetPresets = presets.ifEmpty { current.settings.widgetPresets },
+            )
+            persistSettings(settings)
+            current.copy(
+                settings = settings,
+                feedSources = feedSources.ifEmpty { current.feedSources },
+                monitors = monitors.ifEmpty { current.monitors },
+                schedules = schedules.ifEmpty { current.schedules },
+                message = "Backup restored",
+            )
+        }
+        return true
+    }
+
+    private fun neutralTitlesEnabledForStory(feedSources: List<FeedSource>, story: NewsStory): Boolean =
+        feedSources.firstOrNull { it.title == story.source }?.neutralTitlesEnabled ?: true
+
+    fun toggleFeedNeutralTitles(feedSourceId: String) {
+        _state.update { current ->
+            val feedSources = current.feedSources.map { source ->
+                if (source.id == feedSourceId) {
+                    source.copy(neutralTitlesEnabled = !source.neutralTitlesEnabled)
+                } else {
+                    source
+                }
+            }
+            persistFeedSources(feedSources)
+            val changed = feedSources.firstOrNull { it.id == feedSourceId }
+            current.copy(
+                feedSources = feedSources,
+                message = changed?.let {
+                    if (it.neutralTitlesEnabled) "${it.title} neutral titles on" else "${it.title} neutral titles off"
+                },
+            )
+        }
+    }
+
     fun setFeedViewMode(mode: FeedViewMode) {
         _state.update { current ->
             current.copy(
                 feedViewMode = mode,
                 message = when (mode) {
                     FeedViewMode.All -> "Showing all stories"
+                    FeedViewMode.Unread -> "Showing unread stories"
                     FeedViewMode.Filtered -> "Showing keyword matches"
                     FeedViewMode.Saved -> "Showing saved stories"
                 },

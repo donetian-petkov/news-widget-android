@@ -6,6 +6,7 @@ data class FeedSource(
     val url: String,
     val fetchEnabled: Boolean = true,
     val aiEnabled: Boolean = true,
+    val neutralTitlesEnabled: Boolean = true,
 )
 
 val defaultFeedSources = listOf(
@@ -112,7 +113,11 @@ fun mergeWithDefaultFeedSources(feedSources: List<FeedSource>): List<FeedSource>
     val customFeeds = feedSources.filterNot { it.url.normalizeFeedUrl() in defaultUrls }
     val defaults = defaultFeedSources.map { source ->
         val saved = savedByUrl[source.url.normalizeFeedUrl()] ?: return@map source
-        source.copy(fetchEnabled = saved.fetchEnabled, aiEnabled = saved.aiEnabled)
+        source.copy(
+            fetchEnabled = saved.fetchEnabled,
+            aiEnabled = saved.aiEnabled,
+            neutralTitlesEnabled = saved.neutralTitlesEnabled,
+        )
     }
     return defaults + customFeeds
 }

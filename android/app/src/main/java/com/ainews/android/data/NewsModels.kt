@@ -78,8 +78,33 @@ enum class ScheduleKind {
 
 enum class FeedViewMode {
     All,
+    Unread,
     Filtered,
     Saved,
+}
+
+enum class FontScale {
+    Small,
+    Medium,
+    Large,
+    ExtraLarge,
+    ;
+
+    val label: String
+        get() = when (this) {
+            Small -> "Small"
+            Medium -> "Medium"
+            Large -> "Large"
+            ExtraLarge -> "Extra large"
+        }
+
+    val scale: Float
+        get() = when (this) {
+            Small -> 0.85f
+            Medium -> 1.0f
+            Large -> 1.25f
+            ExtraLarge -> 1.5f
+        }
 }
 
 data class NewsSchedule(
@@ -168,6 +193,10 @@ data class RuntimeSettings(
     val widgetStackIndex: Int = 0,
     val widgetPresets: List<WidgetPreset> = emptyList(),
     val keywords: List<String> = emptyList(),
+    val appFontScale: FontScale = FontScale.Medium,
+    val widgetFontScale: FontScale = FontScale.Medium,
+    val useMaterialYou: Boolean = false,
+    val notifyOnKeywordMatch: Boolean = true,
 )
 
 data class RuntimeState(
@@ -223,6 +252,8 @@ data class NewsStory(
     val pinnedAt: Long? = null,
     val isSaved: Boolean = false,
     val savedAt: Long? = null,
+    val isRead: Boolean = false,
+    val readAt: Long? = null,
     val neutralTitle: String? = null,
     val translation: String? = null,
     val research: String? = null,
@@ -278,6 +309,7 @@ data class NewsUiState(
     val settings: RuntimeSettings = RuntimeSettings(),
     val feedSources: List<FeedSource> = defaultFeedSources,
     val feedViewMode: FeedViewMode = FeedViewMode.All,
+    val searchQuery: String = "",
     val fetchHistory: List<FeedFetchRecord> = emptyList(),
     val digests: List<DigestEntry> = emptyList(),
     val usageRecords: List<AiUsageRecord> = emptyList(),
@@ -291,10 +323,12 @@ data class NewsUiState(
             .filter { story ->
                 when (feedViewMode) {
                     FeedViewMode.All -> true
+                    FeedViewMode.Unread -> !story.isRead
                     FeedViewMode.Filtered -> KeywordMatcher.matches(settings.keywords, story)
                     FeedViewMode.Saved -> story.isSaved
                 }
             }
+            .filter { story -> story.matchesSearch(searchQuery) }
 
     val savedStories: List<NewsStory>
         get() = stories.filter { it.isSaved }.sortedByDescending { it.savedAt ?: it.publishedAt }
@@ -304,6 +338,9 @@ data class NewsUiState(
             .filterNot { it.isHidden }
             .filter { KeywordMatcher.matches(settings.keywords, it) }
             .sortedByDescending { it.publishedAt }
+
+    val unreadCount: Int
+        get() = stories.count { !it.isHidden && !it.isRead }
 
     val pendingAiCount: Int
         get() = stories.count { !it.isHidden && !it.aiFieldsAvailable }
@@ -397,3 +434,15 @@ fun WidgetPreset.effectiveFeedSourceIds(): List<String> =
     feedSourceIds.ifEmpty {
         listOf(feedSourceId).filterNot { it == WIDGET_ALL_FEEDS }
     }.distinct()
+
+fun NewsStory.matchesSearch(query: String): Boolean {
+    val clean = query.trim()
+    if (clean.isBlank()) return true
+    val haystack = listOfNotNull(title, summary, neutralTitle, research, translation, source)
+        .joinToString(" ")
+        .lowercase(java.util.Locale.getDefault())
+    return clean.lowercase(java.util.Locale.getDefault())
+        .split(" ")
+        .filter { it.isNotBlank() }
+        .all { haystack.contains(it) }
+}

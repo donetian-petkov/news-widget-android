@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import com.ainews.android.MainActivity
 import com.ainews.android.R
 import com.ainews.android.data.FetchStatus
+import com.ainews.android.data.FontScale
 import com.ainews.android.data.KeywordMatcher
 import com.ainews.android.data.WIDGET_FILTERED_FEED
 import com.ainews.android.data.NewsStory
@@ -135,7 +136,7 @@ class NewsWidget : GlanceAppWidget() {
             }
             val size = LocalSize.current
             val metrics = widgetMetrics(settings.widgetDensityMode)
-            val type = widgetTypography(settings.widgetTypographyMode)
+            val type = widgetTypography(settings.widgetTypographyMode, settings.widgetFontScale)
             val preferredStoryCount = instancePreferences.storyCount(appWidgetId)
             val baseStoryLimit = when {
                 size.width < 180.dp || size.height < 130.dp -> 1
@@ -576,8 +577,14 @@ private fun StoryTextBlock(
         Text(
             text = story.widgetTitle(),
             style = TextStyle(
-                color = ColorProvider(if (isAlert) palette.alertTitle else palette.storyTitle),
-                fontWeight = FontWeight.Bold,
+                color = ColorProvider(
+                    when {
+                        isAlert -> palette.alertTitle
+                        story.isRead -> palette.muted
+                        else -> palette.storyTitle
+                    },
+                ),
+                fontWeight = if (story.isRead) FontWeight.Normal else FontWeight.Bold,
                 fontSize = type.title,
             ),
             maxLines = 2,
@@ -700,8 +707,11 @@ private fun widgetMetrics(densityMode: WidgetDensityMode): WidgetMetrics =
         )
     }
 
-private fun widgetTypography(typographyMode: WidgetTypographyMode): WidgetTypography =
-    when (typographyMode) {
+private fun widgetTypography(
+    typographyMode: WidgetTypographyMode,
+    fontScale: FontScale,
+): WidgetTypography {
+    val base = when (typographyMode) {
         WidgetTypographyMode.Standard -> WidgetTypography(
             header = 15.sp,
             title = 15.sp,
@@ -716,6 +726,14 @@ private fun widgetTypography(typographyMode: WidgetTypographyMode): WidgetTypogr
             meta = 13.sp,
         )
     }
+    val scale = fontScale.scale
+    return WidgetTypography(
+        header = (base.header.value * scale).sp,
+        title = (base.title.value * scale).sp,
+        body = (base.body.value * scale).sp,
+        meta = (base.meta.value * scale).sp,
+    )
+}
 
 private fun normalizedStackIndex(stackIndex: Int, storyCount: Int): Int {
     if (storyCount == 0) return 0
@@ -917,10 +935,12 @@ class OpenStoryAction : ActionCallback {
     ) {
         val storyId = parameters[storyIdKey] ?: return
         val story = NewsRepository.state.value.stories.firstOrNull { it.id == storyId } ?: return
+        NewsRepository.markRead(storyId)
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(story.sourceUrl)).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
+        NewsWidget().updateAll(context)
     }
 }
 

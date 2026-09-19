@@ -68,6 +68,41 @@ class AlertNotifier(
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
     }
 
+    fun notifyKeywordMatches(stories: List<NewsStory>, keywords: List<String>) {
+        if (stories.isEmpty() || keywords.isEmpty()) return
+        if (!canNotify()) return
+        ensureChannel()
+
+        val first = stories.first()
+        val title = if (stories.size == 1) {
+            "New story for your keywords"
+        } else {
+            "${stories.size} new stories for your keywords"
+        }
+        val intent = Intent(context, MainActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_STORY_ID, first.id)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            KEYWORD_NOTIFICATION_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val body = stories.take(4).joinToString("\n") { "- ${it.title}" }
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(first.title)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(context).notify(KEYWORD_NOTIFICATION_ID, notification)
+    }
+
     fun notifyDigest(title: String, body: String) {
         if (!canNotify()) return
         ensureChannel()
@@ -105,5 +140,6 @@ class AlertNotifier(
         private const val CHANNEL_ID = "ai-news-alerts"
         private const val NOTIFICATION_ID = 20260918
         private const val DIGEST_NOTIFICATION_ID = 20260919
+        private const val KEYWORD_NOTIFICATION_ID = 20260920
     }
 }

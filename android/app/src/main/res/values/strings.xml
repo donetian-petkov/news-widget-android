@@ -1,4 +1,7 @@
 <resources>
     <string name="app_name">AI News</string>
     <string name="widget_name">AI News Widget</string>
+    <string name="shortcut_refresh">Refresh feeds</string>
+    <string name="shortcut_filtered">Filtered feed</string>
+    <string name="shortcut_library">Library</string>
 </resources>

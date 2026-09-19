@@ -68,7 +68,8 @@ object RuntimePreferencesCodec {
                     .put("title", source.title)
                     .put("url", source.url)
                     .put("fetchEnabled", source.fetchEnabled)
-                    .put("aiEnabled", source.aiEnabled),
+                    .put("aiEnabled", source.aiEnabled)
+                    .put("neutralTitlesEnabled", source.neutralTitlesEnabled),
             )
         }
         return array.toString()
@@ -90,6 +91,7 @@ object RuntimePreferencesCodec {
                             url = url,
                             fetchEnabled = item.optBoolean("fetchEnabled", true),
                             aiEnabled = item.optBoolean("aiEnabled", true),
+                            neutralTitlesEnabled = item.optBoolean("neutralTitlesEnabled", true),
                         ),
                     )
                 }

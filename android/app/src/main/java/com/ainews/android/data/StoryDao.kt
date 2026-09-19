@@ -35,6 +35,12 @@ interface StoryDao {
     @Query("UPDATE stories SET isSaved = :isSaved, savedAt = :savedAt WHERE id = :storyId")
     fun setSaved(storyId: String, isSaved: Boolean, savedAt: Long?)
 
+    @Query("UPDATE stories SET isRead = :isRead, readAt = :readAt WHERE id = :storyId")
+    fun setRead(storyId: String, isRead: Boolean, readAt: Long?)
+
+    @Query("UPDATE stories SET isRead = 1, readAt = :readAt WHERE isHidden = 0 AND isRead = 0")
+    fun markAllRead(readAt: Long)
+
     @Query("UPDATE stories SET summary = :summary, aiFieldsAvailable = 1 WHERE id = :storyId")
     fun updateSummary(storyId: String, summary: String)
 

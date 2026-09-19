@@ -68,6 +68,14 @@ class RuntimePreferences(
                 widgetPresets = prefs[Keys.widgetPresetsJson]
                     ?.let(RuntimePreferencesCodec::widgetPresetsFromJson)
                     .orEmpty(),
+                appFontScale = prefs[Keys.appFontScale]
+                    ?.let { runCatching { FontScale.valueOf(it) }.getOrNull() }
+                    ?: FontScale.Medium,
+                widgetFontScale = prefs[Keys.widgetFontScale]
+                    ?.let { runCatching { FontScale.valueOf(it) }.getOrNull() }
+                    ?: FontScale.Medium,
+                useMaterialYou = prefs[Keys.useMaterialYou] ?: false,
+                notifyOnKeywordMatch = prefs[Keys.notifyOnKeywordMatch] ?: true,
                 keywords = prefs[Keys.keywordsJson]
                     ?.let(RuntimePreferencesCodec::stringListFromJson)
                     .orEmpty(),
@@ -142,6 +150,10 @@ class RuntimePreferences(
             prefs[Keys.widgetTypographyMode] = settings.widgetTypographyMode.name
             prefs[Keys.widgetStackIndex] = settings.widgetStackIndex.toLong().coerceAtLeast(0)
             prefs[Keys.widgetPresetsJson] = RuntimePreferencesCodec.widgetPresetsToJson(settings.widgetPresets)
+            prefs[Keys.appFontScale] = settings.appFontScale.name
+            prefs[Keys.widgetFontScale] = settings.widgetFontScale.name
+            prefs[Keys.useMaterialYou] = settings.useMaterialYou
+            prefs[Keys.notifyOnKeywordMatch] = settings.notifyOnKeywordMatch
             prefs[Keys.keywordsJson] = RuntimePreferencesCodec.stringListToJson(settings.keywords)
         }
     }
@@ -208,6 +220,10 @@ class RuntimePreferences(
         val monitorsJson = stringPreferencesKey("monitors_json")
         val feedSourcesJson = stringPreferencesKey("feed_sources_json")
         val keywordsJson = stringPreferencesKey("keywords_json")
+        val appFontScale = stringPreferencesKey("app_font_scale")
+        val widgetFontScale = stringPreferencesKey("widget_font_scale")
+        val useMaterialYou = booleanPreferencesKey("use_material_you")
+        val notifyOnKeywordMatch = booleanPreferencesKey("notify_on_keyword_match")
         val schedulesJson = stringPreferencesKey("schedules_json")
         val digestsJson = stringPreferencesKey("digests_json")
         val usageJson = stringPreferencesKey("usage_json")
