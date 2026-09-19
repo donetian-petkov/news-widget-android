@@ -81,6 +81,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private const val WIDGET_IMAGE_LIMIT = 6
+private const val WIDGET_MAX_ROWS = 12
 private const val STALE_FETCH_MILLIS = 3L * 60L * 1000L
 
 class NewsWidget : GlanceAppWidget() {
@@ -150,7 +151,16 @@ class NewsWidget : GlanceAppWidget() {
                 size.height < 220.dp -> 2
                 else -> preferredStoryCount
             }
-            val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(100)
+            // A widget update travels as one RemoteViews parcel; long lists silently come back
+            // with empty rows, so the list is paged rather than grown.
+            val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(WIDGET_MAX_ROWS)
+            val pageCount = if (allWidgetStories.isEmpty()) {
+                1
+            } else {
+                ((allWidgetStories.size + storyLimit - 1) / storyLimit).coerceAtLeast(1)
+            }
+            val pageIndex = instancePreferences.pageIndex(appWidgetId).coerceAtMost(pageCount - 1)
+            val firstStoryNumber = pageIndex * storyLimit + 1
             // A fetch that died with the process would otherwise leave the spinner up forever.
             val fetching = state.runtime.lastFetchStatus == FetchStatus.Fetching &&
                 (System.currentTimeMillis() - (state.runtime.lastFetchStartedAt ?: 0L)) < STALE_FETCH_MILLIS
@@ -161,7 +171,7 @@ class NewsWidget : GlanceAppWidget() {
             val stories = if (stackMode) {
                 allWidgetStories.drop(stackIndex).take(1)
             } else {
-                allWidgetStories.take(storyLimit)
+                allWidgetStories.drop(pageIndex * storyLimit).take(storyLimit)
             }
             val systemInDarkMode = (
                 context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
@@ -297,9 +307,9 @@ class NewsWidget : GlanceAppWidget() {
                         if (index == storyRows.size) {
                             // Widgets get no pull gesture from Android, so the end of the list
                             // carries the "more" control instead.
-                            val hasMoreStored = allWidgetStories.size > storyRows.size
-                            val footerAction = if (hasMoreStored) {
-                                actionRunCallback<ShowMoreStoriesAction>()
+                            val hasNextPage = pageIndex < pageCount - 1
+                            val footerAction = if (hasNextPage) {
+                                actionRunCallback<NextPageAction>()
                             } else {
                                 actionRunCallback<RefreshAction>()
                             }
@@ -314,10 +324,19 @@ class NewsWidget : GlanceAppWidget() {
                                         .clickable(footerAction)
                                         .padding(vertical = 10.dp),
                                 ) {
+                                    if (fetching) {
+                                        CircularProgressIndicator(
+                                            color = ColorProvider(palette.statusText),
+                                            modifier = GlanceModifier.size(14.dp),
+                                        )
+                                        Spacer(GlanceModifier.width(8.dp))
+                                    }
                                     Text(
                                         text = when {
                                             fetching -> "Fetching new stories"
-                                            hasMoreStored -> "Load more stories"
+                                            hasNextPage -> "Load the next ${
+                                                minOf(storyLimit, allWidgetStories.size - (pageIndex + 1) * storyLimit)
+                                            } stories"
                                             else -> "Fetch new stories"
                                         },
                                         style = TextStyle(
@@ -379,6 +398,16 @@ class NewsWidget : GlanceAppWidget() {
                                 tint = palette.muted,
                             )
                         }
+                        if (pageIndex > 0) {
+                            WidgetIconButton(
+                                iconRes = R.drawable.ic_arrow_up,
+                                contentDescription = "Back to the newest stories",
+                                action = actionRunCallback<ResetPageAction>(),
+                                backgroundRes = buttonBackground,
+                                tint = palette.statusText,
+                                compact = true,
+                            )
+                        }
                         WidgetIconButton(
                             iconRes = R.drawable.ic_done_all,
                             contentDescription = "Mark everything read",
@@ -404,9 +433,10 @@ class NewsWidget : GlanceAppWidget() {
                         }
                         Text(
                             text = when {
-                                fetching -> "Fetching new stories"
-                                unreadOnly -> "${stories.size} unread of ${allWidgetStories.size}"
-                                else -> "${stories.size} of ${allWidgetStories.size}"
+                                fetching -> "Fetching"
+                                stories.isEmpty() -> "Nothing to show"
+                                else -> "$firstStoryNumber-${firstStoryNumber + stories.size - 1} " +
+                                    "of ${allWidgetStories.size}"
                             },
                             style = TextStyle(
                                 color = ColorProvider(palette.muted),
@@ -960,6 +990,31 @@ enum class WidgetActionStyle {
     Full,
 }
 
+class NextPageAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        val preferences = WidgetInstancePreferences(context)
+        preferences.setPageIndex(appWidgetId, preferences.pageIndex(appWidgetId) + 1)
+        NewsWidget().updateAll(context)
+    }
+}
+
+class ResetPageAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        WidgetInstancePreferences(context).setPageIndex(appWidgetId, 0)
+        NewsWidget().updateAll(context)
+    }
+}
+
 class ToggleExpandStoryAction : ActionCallback {
     override suspend fun onAction(
         context: Context,
@@ -1052,6 +1107,8 @@ class RefreshAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
+        WidgetInstancePreferences(context).setPageIndex(appWidgetId, 0)
         coroutineScope {
             val refresh = launch { NewsRepository.refreshNow() }
             // Paint the spinner straight away instead of only showing the result.
@@ -1092,7 +1149,11 @@ class ToggleWidgetStoryCountAction : ActionCallback {
     ) {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
         val preferences = WidgetInstancePreferences(context)
-        val nextCount = if (preferences.storyCount(appWidgetId) >= 40) 15 else 40
+        val nextCount = when (preferences.storyCount(appWidgetId)) {
+            in 0..7 -> 12
+            in 8..14 -> 20
+            else -> 6
+        }
         preferences.saveStoryCount(appWidgetId, nextCount)
         NewsWidget().updateAll(context)
     }

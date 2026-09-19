@@ -43,6 +43,13 @@ class WidgetInstancePreferences(context: Context) {
         prefs.edit().putBoolean(unreadKey(appWidgetId), unreadOnly).apply()
     }
 
+    fun pageIndex(appWidgetId: Int): Int =
+        prefs.getInt(pageKey(appWidgetId), 0).coerceAtLeast(0)
+
+    fun setPageIndex(appWidgetId: Int, index: Int) {
+        prefs.edit().putInt(pageKey(appWidgetId), index.coerceAtLeast(0)).apply()
+    }
+
     fun expandedStoryId(appWidgetId: Int): String? =
         prefs.getString(expandedKey(appWidgetId), null)
 
@@ -54,17 +61,19 @@ class WidgetInstancePreferences(context: Context) {
     }
 
     fun storyCount(appWidgetId: Int): Int =
-        prefs.getInt(countKey(appWidgetId), 15).coerceIn(5, 100)
+        prefs.getInt(countKey(appWidgetId), 12).coerceIn(5, 20)
 
     fun saveStoryCount(appWidgetId: Int, count: Int) {
         prefs.edit()
-            .putInt(countKey(appWidgetId), count.coerceIn(5, 100))
+            .putInt(countKey(appWidgetId), count.coerceIn(5, 20))
             .apply()
     }
 
     private fun unreadKey(appWidgetId: Int) = "unread-only-$appWidgetId"
 
     private fun expandedKey(appWidgetId: Int) = "expanded-story-$appWidgetId"
+
+    private fun pageKey(appWidgetId: Int) = "page-index-$appWidgetId"
 
     fun moveStack(appWidgetId: Int, offset: Int) {
         prefs.edit()
