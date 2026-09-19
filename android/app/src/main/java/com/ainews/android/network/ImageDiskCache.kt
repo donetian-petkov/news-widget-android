@@ -109,7 +109,7 @@ class ImageDiskCache(
 
     companion object {
         const val CACHE_DIR_NAME = "story-images"
-        const val PREFETCH_LIMIT = 48
+        const val PREFETCH_LIMIT = 120
         const val THUMBNAIL_MAX_PX = 160
         const val DEFAULT_MAX_BYTES = 5L * 1024L * 1024L
         const val DEFAULT_MAX_AGE_MILLIS = 7L * 24L * 60L * 60L * 1000L
