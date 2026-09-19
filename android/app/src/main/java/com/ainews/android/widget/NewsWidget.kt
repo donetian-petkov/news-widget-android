@@ -23,7 +23,9 @@ import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.CircularProgressIndicator
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.currentState
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -97,6 +99,17 @@ private val stackIndexKey = intPreferencesKey("stack-index")
 
 private const val WIDGET_IMAGE_LIMIT = 20
 private const val WIDGET_MAX_ROWS = 12
+private const val WIDGET_PAGE_WINDOW = 8
+
+/** How many story cards fit in a widget of this height without scrolling. */
+internal fun fittingRowCount(heightDp: Float, densityMode: WidgetDensityMode, fontScale: Float): Int {
+    val rowHeight = when (densityMode) {
+        WidgetDensityMode.Compact -> 92f
+        WidgetDensityMode.Comfortable -> 108f
+    } * fontScale
+    val chrome = 156f
+    return (((heightDp - chrome) / rowHeight).toInt()).coerceIn(1, 8)
+}
 private const val STALE_FETCH_MILLIS = 3L * 60L * 1000L
 
 class NewsWidget : GlanceAppWidget() {
@@ -110,15 +123,19 @@ class NewsWidget : GlanceAppWidget() {
         val imageDiskCache = ImageDiskCache()
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
         val instancePreferences = WidgetInstancePreferences(context)
+        val storedState = runCatching {
+            getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
+        }.getOrNull()
         val visibleForImages = run {
             val state = NewsRepository.state.value
-            val pageSize = instancePreferences.storyCount(appWidgetId)
-            val page = instancePreferences.pageIndex(appWidgetId)
-            val unreadOnlyNow = instancePreferences.unreadOnly(appWidgetId)
+            val page = storedState?.get(pageIndexKey) ?: 0
+            val unreadOnlyNow = storedState?.get(unreadOnlyKey) ?: false
+            // Thumbnails are loaded for a generous window around the page, since the exact
+            // page size is only known once the widget size is available in the composition.
             state.prioritizedStories
                 .filter { !unreadOnlyNow || !it.isRead }
-                .drop(page * pageSize)
-                .take(pageSize)
+                .drop(page * WIDGET_PAGE_WINDOW)
+                .take(WIDGET_PAGE_WINDOW * 2)
         }
         val cachedImages = visibleForImages
             .take(WIDGET_IMAGE_LIMIT)
@@ -166,18 +183,19 @@ class NewsWidget : GlanceAppWidget() {
             val size = LocalSize.current
             val metrics = widgetMetrics(settings.widgetDensityMode)
             val type = widgetTypography(settings.widgetTypographyMode, settings.widgetFontScale)
-            val preferredStoryCount = (widgetState[storyCountKey] ?: instancePreferences.storyCount(appWidgetId))
-                .coerceIn(5, 20)
+            // The list keeps its scroll position across an update, so a page that needed
+            // scrolling left you looking at the bottom of the new one. A page is what fits.
+            val preferredStoryCount = fittingRowCount(
+                heightDp = size.height.value,
+                densityMode = settings.widgetDensityMode,
+                fontScale = settings.widgetFontScale.scale,
+            )
             val unreadOnly = widgetState[unreadOnlyKey] ?: instancePreferences.unreadOnly(appWidgetId)
             val expandedStoryId = widgetState[expandedStoryKey] ?: instancePreferences.expandedStoryId(appWidgetId)
             val tokensToday = state.usageRecords
                 .filter { it.createdAt > System.currentTimeMillis() - 24L * 60 * 60 * 1000 }
                 .sumOf { it.tokens }
-            val baseStoryLimit = when {
-                size.width < 180.dp || size.height < 130.dp -> 1
-                size.height < 220.dp -> 2
-                else -> preferredStoryCount
-            }
+            val baseStoryLimit = if (size.width < 180.dp) 1 else preferredStoryCount
             // A widget update travels as one RemoteViews parcel; long lists silently come back
             // with empty rows, so the list is paged rather than grown.
             val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(WIDGET_MAX_ROWS)
@@ -335,8 +353,12 @@ class NewsWidget : GlanceAppWidget() {
                 // A LazyColumn keeps every story on screen: a plain Column is capped at ten
                 // children by the remote-views translation, which silently dropped later stories.
                 LazyColumn(modifier = GlanceModifier.defaultWeight()) {
-                    items(storyRows.size + 1) { index ->
+                    items(
+                        count = storyRows.size + 1,
+                        itemId = { index -> pageIndex * 1000L + index },
+                    ) { index ->
                         if (index == storyRows.size) {
+                            if (stackMode) return@items
                             val hasNextPage = pageIndex < pageCount - 1
                             Column(modifier = GlanceModifier.fillMaxWidth()) {
                                 Row(

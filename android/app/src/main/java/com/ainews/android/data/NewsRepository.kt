@@ -677,6 +677,7 @@ object NewsRepository {
             return
         }
 
+        android.util.Log.i("AiNewsRefresh", "fetched ${fetchedStories.size} stories")
         val refreshResult = StoryRefreshMerger.merge(_state.value.stories, fetchedStories)
         val storiesToStore = refreshResult.stories
         val previousIds = _state.value.stories.map { it.id }.toSet()
