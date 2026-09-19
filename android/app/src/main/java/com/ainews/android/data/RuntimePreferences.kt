@@ -39,7 +39,7 @@ class RuntimePreferences(
                     ?.let { runCatching { AiProvider.valueOf(it) }.getOrNull() }
                     ?: AiProvider.OpenAI,
                 remoteBackendUrl = prefs[Keys.remoteBackendUrl].orEmpty(),
-                fetchCadenceMinutes = (prefs[Keys.fetchCadenceMinutes] ?: 30).coerceAtLeast(15),
+                fetchCadenceMinutes = (prefs[Keys.fetchCadenceMinutes] ?: 10).coerceIn(5, 24 * 60),
                 monitorScanHour = ((prefs[Keys.monitorScanHour] ?: 20).toInt()).coerceIn(0, 23),
                 aiDailyBudgetCents = ((prefs[Keys.aiDailyBudgetCents] ?: 100).toInt()).coerceAtLeast(0),
                 providerKeySaved = prefs[Keys.providerKeySaved] ?: false,
@@ -136,7 +136,7 @@ class RuntimePreferences(
             prefs[Keys.backendMode] = settings.backendMode.name
             prefs[Keys.aiProvider] = settings.aiProvider.name
             prefs[Keys.remoteBackendUrl] = settings.remoteBackendUrl
-            prefs[Keys.fetchCadenceMinutes] = settings.fetchCadenceMinutes.coerceAtLeast(15)
+            prefs[Keys.fetchCadenceMinutes] = settings.fetchCadenceMinutes.coerceIn(5, 24 * 60)
             prefs[Keys.monitorScanHour] = settings.monitorScanHour.toLong().coerceIn(0, 23)
             prefs[Keys.aiDailyBudgetCents] = settings.aiDailyBudgetCents.toLong().coerceAtLeast(0)
             prefs[Keys.providerKeySaved] = settings.providerKeySaved

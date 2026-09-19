@@ -10,6 +10,7 @@ import com.ainews.android.network.RssFeedFetcher
 import com.ainews.android.notifications.AlertNotifier
 import com.ainews.android.worker.AutoPowerOffWorker
 import com.ainews.android.worker.MonitorScanWorker
+import com.ainews.android.worker.RefreshAlarmReceiver
 import com.ainews.android.worker.RefreshNewsWorker
 import com.ainews.android.worker.ScheduleWorker
 import kotlinx.coroutines.CoroutineScope
@@ -205,9 +206,10 @@ object NewsRepository {
             )
             persistRuntime(runtime)
             if (enabled) {
-                RefreshNewsWorker.schedule(appContext, current.settings.fetchCadenceMinutes)
+                scheduleRefreshes(current.settings.fetchCadenceMinutes)
             } else {
                 RefreshNewsWorker.cancel(appContext)
+                RefreshAlarmReceiver.cancel(appContext)
                 AutoPowerOffWorker.cancel(appContext)
             }
             sendRemoteRuntimeIfNeeded(current.settings, enabled)
@@ -239,7 +241,7 @@ object NewsRepository {
         val normalizedWidgetFeedIds = settings.effectiveWidgetFeedSourceIds()
             .filter { it in validFeedIds || it == WIDGET_FILTERED_FEED }
         val normalized = settings.copy(
-            fetchCadenceMinutes = settings.fetchCadenceMinutes.coerceAtLeast(15),
+            fetchCadenceMinutes = settings.fetchCadenceMinutes.coerceIn(5, 24 * 60),
             monitorScanHour = settings.monitorScanHour.coerceIn(0, 23),
             aiDailyBudgetCents = settings.aiDailyBudgetCents.coerceAtLeast(0),
             providerKeySaved = secureProviderKeyStore.hasKey(),
@@ -272,7 +274,7 @@ object NewsRepository {
         _state.update { current ->
             persistSettings(normalized)
             if (current.runtime.runtimeEnabled) {
-                RefreshNewsWorker.schedule(appContext, normalized.fetchCadenceMinutes)
+                scheduleRefreshes(normalized.fetchCadenceMinutes)
             }
             MonitorScanWorker.schedule(appContext, normalized.monitorScanHour)
             current.copy(
@@ -603,6 +605,7 @@ object NewsRepository {
             )
             persistRuntime(runtime)
             RefreshNewsWorker.cancel(appContext)
+            RefreshAlarmReceiver.cancel(appContext)
             current.copy(
                 runtime = runtime,
                 message = "Auto power-off completed",
@@ -1234,6 +1237,16 @@ object NewsRepository {
                     "Monitor scan found ${matches.size} match"
                 },
             )
+        }
+    }
+
+    /** Under fifteen minutes WorkManager will not run, so a repeating alarm carries it. */
+    private fun scheduleRefreshes(cadenceMinutes: Long) {
+        RefreshNewsWorker.schedule(appContext, cadenceMinutes.coerceAtLeast(15))
+        if (cadenceMinutes < 15) {
+            RefreshAlarmReceiver.schedule(appContext, cadenceMinutes)
+        } else {
+            RefreshAlarmReceiver.cancel(appContext)
         }
     }
 

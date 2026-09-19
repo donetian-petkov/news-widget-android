@@ -33,6 +33,10 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <receiver
+            android:name=".worker.RefreshAlarmReceiver"
+            android:exported="false" />
+
         <service
             android:name=".RuntimeTileService"
             android:exported="true"

@@ -179,7 +179,7 @@ data class RuntimeSettings(
     val backendMode: BackendMode = BackendMode.NativeRuntime,
     val aiProvider: AiProvider = AiProvider.OpenAI,
     val remoteBackendUrl: String = "",
-    val fetchCadenceMinutes: Long = 30,
+    val fetchCadenceMinutes: Long = 10,
     val monitorScanHour: Int = 20,
     val aiDailyBudgetCents: Int = 100,
     val providerKeySaved: Boolean = false,
