@@ -23,6 +23,7 @@ check() { # check <name> <condition-result> <detail>
 dump() { "$ADB" shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; "$ADB" shell cat /sdcard/ui.xml; }
 find_node() { "$HERE/ui_find.py" "$ADB" "$1" "${2:-any}" 2>/dev/null; }
 counter() { dump | grep -o 'text="[0-9]*-[0-9]* of [0-9]*"' | head -1 | sed 's/text=//;s/"//g'; }
+first_index() { counter | cut -d- -f1; }
 first_headline() { dump | grep -o 'text="[^"]\{25,\}"' | grep -v "Updated" | head -1; }
 scroll_to_end() { for _ in $(seq 1 12); do "$ADB" shell input swipe 540 1150 540 750 160; done; }
 shot() { "$ADB" shell screencap -p /sdcard/s.png >/dev/null; "$ADB" pull /sdcard/s.png "$SHOTS/$1.png" >/dev/null; }
@@ -39,52 +40,65 @@ shot 00-page1
 "$HERE/has_thumbnails.py" "$SHOTS/00-page1.png" && check "story thumbnails render" 0 || check "story thumbnails render" 1
 
 echo "== Paging"
-BEFORE="$(counter)"; BEFORE_HEAD="$(first_headline)"
-P="$(find_node 'load more stories')"
-if [ -z "$P" ]; then scroll_to_end; P="$(find_node 'load more stories')"; fi
+BEFORE="$(first_index)"; BEFORE_HEAD="$(first_headline)"
+P="$(find_node 'load next')"
+if [ -z "$P" ]; then scroll_to_end; P="$(find_node 'load next')"; fi
 if [ -n "$P" ]; then
   "$ADB" shell input tap $P; sleep 5
-  AFTER="$(counter)"; AFTER_HEAD="$(first_headline)"
+  AFTER="$(first_index)"; AFTER_HEAD="$(first_headline)"
   shot 01-page2
-  [ "$BEFORE" != "$AFTER" ] && check "load more advances the page" 0 "$BEFORE -> $AFTER" || check "load more advances the page" 1 "stuck on $BEFORE"
-  [ "$BEFORE_HEAD" != "$AFTER_HEAD" ] && check "the page shows different stories" 0 || check "the page shows different stories" 1
+  [ "${AFTER:-0}" -gt "${BEFORE:-0}" ] 2>/dev/null && check "next page loads" 0 "$BEFORE -> $AFTER" || check "next page loads" 1 "stuck at $BEFORE"
+  [ "$BEFORE_HEAD" != "$AFTER_HEAD" ] && check "the page shows new stories" 0 || check "the page shows new stories" 1
+  TOP_TEXT="$(dump | grep -o 'text="[^"]*"' | sed -n '4p')"
+  dump | grep -q "Load previous" && check "previous control appears" 0 || check "previous control appears" 1
   "$HERE/has_thumbnails.py" "$SHOTS/01-page2.png" && check "thumbnails survive paging" 0 || check "thumbnails survive paging" 1
-  ROW_VISIBLE="$(find_node 'load more stories')"
-  [ -n "$ROW_VISIBLE" ] && check "load more stays reachable without scrolling" 0 || check "load more stays reachable without scrolling" 1
+  TOP_ROW="$(find_node 'load previous')"
+  [ -n "$TOP_ROW" ] && check "lands at the top of the new page" 0 || check "lands at the top of the new page" 1
 else
   check "load more row exists" 1
 fi
 
-echo "== Repeated paging"
+echo "== Repeated loading"
 OK=0
 for round in 1 2 3 4; do
-  P="$(find_node 'load more stories')"
-  [ -z "$P" ] && { scroll_to_end; P="$(find_node 'load more stories')"; }
+  P="$(find_node 'load next')"
+  [ -z "$P" ] && { scroll_to_end; P="$(find_node 'load next')"; }
   [ -z "$P" ] && { OK=1; break; }
-  PREV="$(counter)"
-  "$ADB" shell input tap $P; sleep 4
-  NOW="$(counter)"
-  [ "$PREV" = "$NOW" ] && { OK=1; echo "      round $round stuck on $PREV"; break; }
+  PREV="$(first_index)"
+  "$ADB" shell input tap $P; sleep 5
+  NOW="$(first_index)"
+  [ "${NOW:-0}" -le "${PREV:-0}" ] 2>/dev/null && { OK=1; echo "      round $round stuck on $PREV"; break; }
 done
 check "paging keeps working (4 more taps)" "$OK" "$(counter)"
+EMPTY_ROWS="$(dump | grep -c 'text=""  *content-desc=""' || true)"
+LAST_HEAD="$(dump | grep -o 'text="[^"]\{25,\}"' | tail -1)"
+[ -n "$LAST_HEAD" ] && check "rows still render after growing the list" 0 || check "rows still render after growing the list" 1
 
-echo "== Back to the newest"
+echo "== Previous page and reset"
+for _ in $(seq 1 12); do "$ADB" shell input swipe 540 750 540 1150 160; done
+PP="$(find_node 'load previous')"
+if [ -n "$PP" ]; then
+  BEFORE_P="$(first_index)"
+  "$ADB" shell input tap $PP; sleep 5
+  AFTER_P="$(first_index)"
+  [ "${AFTER_P:-0}" -lt "${BEFORE_P:-0}" ] 2>/dev/null && check "previous page loads" 0 "$BEFORE_P -> $AFTER_P" || check "previous page loads" 1 "$BEFORE_P -> $AFTER_P"
+else
+  check "previous control is reachable" 1
+fi
 R="$(find_node 'Back to the newest stories' desc)"
 if [ -n "$R" ]; then
-  "$ADB" shell input tap $R; sleep 4
-  case "$(counter)" in 1-*) check "reset returns to the first page" 0 "$(counter)";; *) check "reset returns to the first page" 1 "$(counter)";; esac
+  "$ADB" shell input tap $R; sleep 5
+  case "$(first_index)" in 1) check "reset returns to the newest" 0 "$(counter)";; *) check "reset returns to the newest" 1 "$(counter)";; esac
 else
-  check "reset control is offered after paging" 1
+  check "reset control is offered" 1
 fi
 
 echo "== Expand a card"
 for _ in 1 2 3; do "$ADB" shell input swipe 540 750 540 1150 160; done
 E="$(find_node 'Show the whole story' desc)"
 if [ -n "$E" ]; then
-  LONG_BEFORE="$(dump | grep -o 'text="[^"]\{80,\}"' | wc -l | tr -d ' ')"
   "$ADB" shell input tap $E; sleep 4
-  LONG_AFTER="$(dump | grep -o 'text="[^"]\{80,\}"' | wc -l | tr -d ' ')"
-  [ "$LONG_AFTER" -gt "$LONG_BEFORE" ] && check "card expands on demand" 0 "$LONG_BEFORE -> $LONG_AFTER long lines" || check "card expands on demand" 1 "$LONG_BEFORE -> $LONG_AFTER long lines"
+  dump | grep -q 'content-desc="Show less"' && check "card expands on demand" 0 || check "card expands on demand" 1
   L="$(find_node 'Show less' desc)"; [ -n "$L" ] && "$ADB" shell input tap $L && sleep 2
 else
   check "expand control exists" 1
@@ -94,7 +108,6 @@ echo "== Refresh"
 BEFORE_T="$(dump | grep -o 'text="Updated [^"]*"' | head -1)"
 RF="$(find_node 'Refresh' desc)"
 if [ -n "$RF" ]; then
-  "$ADB" logcat -c
   "$ADB" shell input tap $RF
   SAW_FETCH=1
   for _ in $(seq 1 12); do

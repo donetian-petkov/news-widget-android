@@ -91,15 +91,15 @@ import java.util.Locale
 // Per-instance view state lives in Glance's own state: Glance does not watch
 // SharedPreferences, so writes there never triggered a recomposition.
 private val pageIndexKey = intPreferencesKey("page-index")
+private val settlingKey = booleanPreferencesKey("settling")
 private val unreadOnlyKey = booleanPreferencesKey("unread-only")
 private val expandedStoryKey = stringPreferencesKey("expanded-story")
 private val storyCountKey = intPreferencesKey("story-count")
 private val layoutModeKey = stringPreferencesKey("layout-mode")
 private val stackIndexKey = intPreferencesKey("stack-index")
 
-private const val WIDGET_IMAGE_LIMIT = 20
-private const val WIDGET_MAX_ROWS = 12
-private const val WIDGET_PAGE_WINDOW = 8
+private const val WIDGET_IMAGE_LIMIT = 16
+private const val WIDGET_PAGE_SIZE = 10
 
 /** How many story cards fit in a widget of this height without scrolling. */
 internal fun fittingRowCount(heightDp: Float, densityMode: WidgetDensityMode, fontScale: Float): Int {
@@ -130,12 +130,10 @@ class NewsWidget : GlanceAppWidget() {
             val state = NewsRepository.state.value
             val page = storedState?.get(pageIndexKey) ?: 0
             val unreadOnlyNow = storedState?.get(unreadOnlyKey) ?: false
-            // Thumbnails are loaded for a generous window around the page, since the exact
-            // page size is only known once the widget size is available in the composition.
             state.prioritizedStories
                 .filter { !unreadOnlyNow || !it.isRead }
-                .drop(page * WIDGET_PAGE_WINDOW)
-                .take(WIDGET_PAGE_WINDOW * 2)
+                .drop(page * WIDGET_PAGE_SIZE)
+                .take(WIDGET_PAGE_SIZE)
         }
         val cachedImages = visibleForImages
             .take(WIDGET_IMAGE_LIMIT)
@@ -183,29 +181,27 @@ class NewsWidget : GlanceAppWidget() {
             val size = LocalSize.current
             val metrics = widgetMetrics(settings.widgetDensityMode)
             val type = widgetTypography(settings.widgetTypographyMode, settings.widgetFontScale)
-            // The list keeps its scroll position across an update, so a page that needed
-            // scrolling left you looking at the bottom of the new one. A page is what fits.
-            val preferredStoryCount = fittingRowCount(
-                heightDp = size.height.value,
-                densityMode = settings.widgetDensityMode,
-                fontScale = settings.widgetFontScale.scale,
-            )
+            val pageSize = WIDGET_PAGE_SIZE
             val unreadOnly = widgetState[unreadOnlyKey] ?: instancePreferences.unreadOnly(appWidgetId)
             val expandedStoryId = widgetState[expandedStoryKey] ?: instancePreferences.expandedStoryId(appWidgetId)
             val tokensToday = state.usageRecords
                 .filter { it.createdAt > System.currentTimeMillis() - 24L * 60 * 60 * 1000 }
                 .sumOf { it.tokens }
-            val baseStoryLimit = if (size.width < 180.dp) 1 else preferredStoryCount
-            // A widget update travels as one RemoteViews parcel; long lists silently come back
-            // with empty rows, so the list is paged rather than grown.
-            val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(WIDGET_MAX_ROWS)
             val pageCount = if (allWidgetStories.isEmpty()) {
                 1
             } else {
-                ((allWidgetStories.size + storyLimit - 1) / storyLimit).coerceAtLeast(1)
+                ((allWidgetStories.size + pageSize - 1) / pageSize).coerceAtLeast(1)
             }
             val pageIndex = (widgetState[pageIndexKey] ?: 0).coerceIn(0, pageCount - 1)
-            val firstStoryNumber = pageIndex * storyLimit + 1
+            val firstStoryNumber = pageIndex * pageSize + 1
+            val hasPrevious = pageIndex > 0
+            val hasNext = pageIndex < pageCount - 1
+            // Rendering one row first clamps the list back to the top; the full page follows
+            // in the same update pass. Widgets give no way to scroll a list directly.
+            val settling = widgetState[settlingKey] ?: false
+            // A widget update travels as one RemoteViews parcel, which is why the list has a
+            // ceiling: past it rows come back empty.
+            val storyLimit = if (settling) 1 else pageSize
             // A fetch that died with the process would otherwise leave the spinner up forever.
             val fetching = state.runtime.lastFetchStatus == FetchStatus.Fetching &&
                 (System.currentTimeMillis() - (state.runtime.lastFetchStartedAt ?: 0L)) < STALE_FETCH_MILLIS
@@ -216,7 +212,7 @@ class NewsWidget : GlanceAppWidget() {
             val stories = if (stackMode) {
                 allWidgetStories.drop(stackIndex).take(1)
             } else {
-                allWidgetStories.drop(pageIndex * storyLimit).take(storyLimit)
+                allWidgetStories.drop(pageIndex * pageSize).take(storyLimit)
             }
             val systemInDarkMode = (
                 context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
@@ -353,13 +349,41 @@ class NewsWidget : GlanceAppWidget() {
                 // A LazyColumn keeps every story on screen: a plain Column is capped at ten
                 // children by the remote-views translation, which silently dropped later stories.
                 LazyColumn(modifier = GlanceModifier.defaultWeight()) {
-                    items(
-                        count = storyRows.size + 1,
-                        itemId = { index -> pageIndex * 1000L + index },
-                    ) { index ->
-                        if (index == storyRows.size) {
+                    items(storyRows.size + 2) { index ->
+                        if (index == 0) {
+                            if (stackMode || !hasPrevious) return@items
+                            Column(modifier = GlanceModifier.fillMaxWidth()) {
+                                Row(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = GlanceModifier
+                                        .fillMaxWidth()
+                                        .background(ImageProvider(cardBackground))
+                                        .cornerRadius(12.dp)
+                                        .clickable(
+                                            actionRunCallback<PreviousPageAction>(
+                                                actionParametersOf(appWidgetIdKey to appWidgetId),
+                                            ),
+                                        )
+                                        .padding(vertical = 12.dp),
+                                ) {
+                                    Text(
+                                        text = "Load previous $pageSize",
+                                        style = TextStyle(
+                                            color = ColorProvider(palette.statusText),
+                                            fontSize = type.meta,
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                        maxLines = 1,
+                                    )
+                                }
+                                Spacer(GlanceModifier.height(metrics.cardGap))
+                            }
+                            return@items
+                        }
+                        if (index == storyRows.size + 1) {
                             if (stackMode) return@items
-                            val hasNextPage = pageIndex < pageCount - 1
+                            val hasNextPage = hasNext
                             Column(modifier = GlanceModifier.fillMaxWidth()) {
                                 Row(
                                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -391,7 +415,7 @@ class NewsWidget : GlanceAppWidget() {
                                     Text(
                                         text = when {
                                             fetching -> "Fetching new stories"
-                                            hasNextPage -> "Load more stories"
+                                            hasNextPage -> "Load next $pageSize stories"
                                             else -> "Fetch new stories"
                                         },
                                         style = TextStyle(
@@ -406,7 +430,7 @@ class NewsWidget : GlanceAppWidget() {
                             }
                             return@items
                         }
-                        val (story, showDivider) = storyRows[index]
+                        val (story, showDivider) = storyRows[index - 1]
                         WidgetStoryRow(
                             story = story,
                             widgetId = appWidgetId,
@@ -454,7 +478,7 @@ class NewsWidget : GlanceAppWidget() {
                             maxLines = 1,
                         )
                         Spacer(GlanceModifier.defaultWeight())
-                        if (pageIndex > 0) {
+                        if (hasPrevious) {
                             WidgetIconButton(
                                 iconRes = R.drawable.ic_arrow_up,
                                 contentDescription = "Back to the newest stories",
@@ -1038,6 +1062,31 @@ enum class WidgetActionStyle {
     Full,
 }
 
+/** Moves a page and lands on the first story of it, by clamping the list to the top first. */
+private suspend fun turnPage(context: Context, appWidgetId: Int, glanceId: GlanceId, forward: Boolean) {
+    editWidgetState(context, appWidgetId, glanceId) { prefs ->
+        val current = prefs[pageIndexKey] ?: 0
+        prefs[pageIndexKey] = (if (forward) current + 1 else current - 1).coerceAtLeast(0)
+        prefs[settlingKey] = true
+    }
+    settle(context, appWidgetId, glanceId)
+}
+
+private suspend fun settle(context: Context, appWidgetId: Int, glanceId: GlanceId) {
+    delay(120)
+    editWidgetState(context, appWidgetId, glanceId) { prefs -> prefs[settlingKey] = false }
+}
+
+class PreviousPageAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        turnPage(context, parameters.widgetId(context, glanceId), glanceId, forward = false)
+    }
+}
+
 class NextPageAction : ActionCallback {
     override suspend fun onAction(
         context: Context,
@@ -1045,11 +1094,7 @@ class NextPageAction : ActionCallback {
         parameters: ActionParameters,
     ) {
         val appWidgetId = parameters.widgetId(context, glanceId)
-        editWidgetState(context, appWidgetId, glanceId) { prefs ->
-            val next = (prefs[pageIndexKey] ?: 0) + 1
-            prefs[pageIndexKey] = next
-            WidgetInstancePreferences(context).setPageIndex(appWidgetId, next)
-        }
+        turnPage(context, appWidgetId, glanceId, forward = true)
     }
 }
 
@@ -1062,8 +1107,9 @@ class ResetPageAction : ActionCallback {
         val appWidgetId = parameters.widgetId(context, glanceId)
         editWidgetState(context, appWidgetId, glanceId) { prefs ->
             prefs[pageIndexKey] = 0
-            WidgetInstancePreferences(context).setPageIndex(appWidgetId, 0)
+            prefs[settlingKey] = true
         }
+        settle(context, appWidgetId, glanceId)
     }
 }
 
