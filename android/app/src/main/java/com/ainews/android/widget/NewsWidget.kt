@@ -335,7 +335,55 @@ class NewsWidget : GlanceAppWidget() {
                 // A LazyColumn keeps every story on screen: a plain Column is capped at ten
                 // children by the remote-views translation, which silently dropped later stories.
                 LazyColumn(modifier = GlanceModifier.defaultWeight()) {
-                    items(storyRows.size) { index ->
+                    items(storyRows.size + 1) { index ->
+                        if (index == storyRows.size) {
+                            val hasNextPage = pageIndex < pageCount - 1
+                            Column(modifier = GlanceModifier.fillMaxWidth()) {
+                                Row(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = GlanceModifier
+                                        .fillMaxWidth()
+                                        .background(ImageProvider(cardBackground))
+                                        .cornerRadius(12.dp)
+                                        .clickable(
+                                            if (hasNextPage) {
+                                                actionRunCallback<NextPageAction>(
+                                                    actionParametersOf(appWidgetIdKey to appWidgetId),
+                                                )
+                                            } else {
+                                                actionRunCallback<RefreshAction>(
+                                                    actionParametersOf(appWidgetIdKey to appWidgetId),
+                                                )
+                                            },
+                                        )
+                                        .padding(vertical = 12.dp),
+                                ) {
+                                    if (fetching) {
+                                        CircularProgressIndicator(
+                                            color = ColorProvider(palette.statusText),
+                                            modifier = GlanceModifier.size(14.dp),
+                                        )
+                                        Spacer(GlanceModifier.width(8.dp))
+                                    }
+                                    Text(
+                                        text = when {
+                                            fetching -> "Fetching new stories"
+                                            hasNextPage -> "Load more stories"
+                                            else -> "Fetch new stories"
+                                        },
+                                        style = TextStyle(
+                                            color = ColorProvider(palette.statusText),
+                                            fontSize = type.meta,
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                        maxLines = 1,
+                                    )
+                                }
+                                Spacer(GlanceModifier.height(metrics.cardGap))
+                            }
+                            return@items
+                        }
                         val (story, showDivider) = storyRows[index]
                         WidgetStoryRow(
                             story = story,
@@ -383,35 +431,6 @@ class NewsWidget : GlanceAppWidget() {
                             ),
                             maxLines = 1,
                         )
-                        Spacer(GlanceModifier.width(10.dp))
-                        // Paging lives here as well as at the end of the list, so you never
-                        // have to scroll to the bottom to reach it.
-                        Box(
-                            modifier = GlanceModifier
-                                .background(ImageProvider(cardBackground))
-                                .cornerRadius(12.dp)
-                                .clickable(
-                                    if (pageIndex < pageCount - 1) {
-                                        actionRunCallback<NextPageAction>(
-                                            actionParametersOf(appWidgetIdKey to appWidgetId),
-                                        )
-                                    } else {
-                                        actionRunCallback<RefreshAction>()
-                                    },
-                                )
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = if (pageIndex < pageCount - 1) "More stories" else "Fetch new",
-                                style = TextStyle(
-                                    color = ColorProvider(palette.statusText),
-                                    fontSize = type.meta,
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                                maxLines = 1,
-                            )
-                        }
                         Spacer(GlanceModifier.defaultWeight())
                         if (pageIndex > 0) {
                             WidgetIconButton(
