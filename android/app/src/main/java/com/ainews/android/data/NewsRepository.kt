@@ -241,7 +241,7 @@ object NewsRepository {
             widgetFeedSourceIds = normalizedWidgetFeedIds,
             widgetLayoutMode = settings.widgetLayoutMode,
             widgetBackgroundMode = settings.widgetBackgroundMode,
-            widgetThemeMode = settings.widgetThemeMode,
+            appVibe = settings.appVibe,
             widgetDensityMode = settings.widgetDensityMode,
             widgetTypographyMode = settings.widgetTypographyMode,
             widgetStackIndex = settings.widgetStackIndex.coerceAtLeast(0),

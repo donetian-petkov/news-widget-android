@@ -65,7 +65,7 @@ class RuntimePreferencesCodecTest {
                 feedSourceIds = listOf("bbc-world", "google-ai-policy"),
                 layoutMode = WidgetLayoutMode.Stack,
                 backgroundMode = WidgetBackgroundMode.Transparent,
-                themeMode = WidgetThemeMode.Dark,
+                vibe = AppVibe.Dark,
                 densityMode = WidgetDensityMode.Compact,
                 typographyMode = WidgetTypographyMode.Large,
             ),

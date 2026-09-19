@@ -1,6 +1,7 @@
 package com.ainews.android.widget
 
 import android.content.Context
+import android.content.res.Configuration
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -60,7 +61,7 @@ import com.ainews.android.data.StoryDetailSection
 import com.ainews.android.data.WidgetBackgroundMode
 import com.ainews.android.data.WidgetDensityMode
 import com.ainews.android.data.WidgetLayoutMode
-import com.ainews.android.data.WidgetThemeMode
+import com.ainews.android.data.AppVibe
 import com.ainews.android.data.WidgetTypographyMode
 import com.ainews.android.data.effectiveFeedSourceIds
 import com.ainews.android.data.effectiveWidgetFeedSourceIds
@@ -77,6 +78,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private const val WIDGET_IMAGE_LIMIT = 6
+private const val STALE_FETCH_MILLIS = 3L * 60L * 1000L
 
 class NewsWidget : GlanceAppWidget() {
     /**
@@ -109,7 +111,7 @@ class NewsWidget : GlanceAppWidget() {
                 widgetFeedSourceIds = preset?.effectiveFeedSourceIds() ?: state.settings.effectiveWidgetFeedSourceIds(),
                 widgetLayoutMode = instanceLayoutMode ?: preset?.layoutMode ?: state.settings.widgetLayoutMode,
                 widgetBackgroundMode = preset?.backgroundMode ?: state.settings.widgetBackgroundMode,
-                widgetThemeMode = preset?.themeMode ?: state.settings.widgetThemeMode,
+                appVibe = preset?.vibe ?: state.settings.appVibe,
                 widgetDensityMode = preset?.densityMode ?: state.settings.widgetDensityMode,
                 widgetTypographyMode = preset?.typographyMode ?: state.settings.widgetTypographyMode,
                 widgetStackIndex = instancePreferences.stackIndex(appWidgetId),
@@ -141,6 +143,9 @@ class NewsWidget : GlanceAppWidget() {
                 else -> preferredStoryCount
             }
             val storyLimit = (baseStoryLimit + metrics.extraStoryCapacity).coerceAtMost(40)
+            // A fetch that died with the process would otherwise leave the spinner up forever.
+            val fetching = state.runtime.lastFetchStatus == FetchStatus.Fetching &&
+                (System.currentTimeMillis() - (state.runtime.lastFetchStartedAt ?: 0L)) < STALE_FETCH_MILLIS
             val showActions = size.width >= 220.dp && size.height >= 150.dp
             val showStatusText = size.width >= 260.dp
             val stackMode = settings.widgetLayoutMode == WidgetLayoutMode.Stack
@@ -150,11 +155,15 @@ class NewsWidget : GlanceAppWidget() {
             } else {
                 allWidgetStories.take(storyLimit)
             }
+            val systemInDarkMode = (
+                context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+                ) == Configuration.UI_MODE_NIGHT_YES
             val palette = widgetPalette(
-                themeMode = settings.widgetThemeMode,
+                vibe = settings.appVibe,
+                systemInDarkMode = systemInDarkMode,
                 backgroundMode = settings.widgetBackgroundMode,
             )
-            val darkTheme = settings.widgetThemeMode == WidgetThemeMode.Dark
+            val darkTheme = settings.appVibe.isDark(systemInDarkMode)
             val buttonBackground = if (darkTheme) R.drawable.widget_button_dark else R.drawable.widget_button_light
             val cardBackground = if (darkTheme) R.drawable.widget_card_dark else R.drawable.widget_card_light
             LocalContext.current
@@ -171,7 +180,12 @@ class NewsWidget : GlanceAppWidget() {
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = GlanceModifier.fillMaxWidth().padding(bottom = 4.dp),
                 ) {
-                    Column(modifier = GlanceModifier.defaultWeight().padding(end = 12.dp)) {
+                    Column(
+                        modifier = GlanceModifier
+                            .defaultWeight()
+                            .padding(end = 12.dp)
+                            .clickable(actionRunCallback<OpenAppAction>()),
+                    ) {
                         Text(
                             text = widgetFeedTitle,
                             style = TextStyle(
@@ -192,7 +206,13 @@ class NewsWidget : GlanceAppWidget() {
                                     layoutMode = settings.widgetLayoutMode,
                                     runtimeEnabled = state.runtime.runtimeEnabled,
                                     fetchEnabled = state.runtime.fetchEnabled,
-                                    status = state.runtime.lastFetchStatus,
+                                    status = if (fetching) {
+                                        FetchStatus.Fetching
+                                    } else if (state.runtime.lastFetchStatus == FetchStatus.Fetching) {
+                                        FetchStatus.Idle
+                                    } else {
+                                        state.runtime.lastFetchStatus
+                                    },
                                     showClock = showStatusText,
                                 ),
                                 style = TextStyle(
@@ -211,12 +231,13 @@ class NewsWidget : GlanceAppWidget() {
                         backgroundRes = buttonBackground,
                         tint = if (state.runtime.runtimeEnabled) palette.statusText else palette.warningText,
                     )
-                    if (state.runtime.lastFetchStatus == FetchStatus.Fetching) {
+                    if (fetching) {
                         Box(
                             modifier = GlanceModifier
                                 .padding(end = 8.dp)
                                 .background(ImageProvider(buttonBackground))
                                 .cornerRadius(12.dp)
+                                .clickable(actionRunCallback<RefreshAction>())
                                 .padding(7.dp),
                         ) {
                             CircularProgressIndicator(
@@ -702,52 +723,33 @@ private fun normalizedStackIndex(stackIndex: Int, storyCount: Int): Int {
 }
 
 private fun widgetPalette(
-    themeMode: WidgetThemeMode,
+    vibe: AppVibe,
+    systemInDarkMode: Boolean,
     backgroundMode: WidgetBackgroundMode,
-): WidgetPalette =
-    when (themeMode) {
-        WidgetThemeMode.Light -> WidgetPalette(
-            background = when (backgroundMode) {
-                WidgetBackgroundMode.Solid -> Color(0xFFF8FAFC)
-                WidgetBackgroundMode.Transparent -> Color(0xDDF8FAFC)
-            },
-            card = Color(0xFFFFFFFF),
-            alertCard = Color(0xFFFEE2E2),
-            header = Color(0xFF0F172A),
-            storyTitle = Color(0xFF0F172A),
-            alertTitle = Color(0xFF7F1D1D),
-            body = Color(0xFF334155),
-            muted = Color(0xFF64748B),
-            statusPill = Color(0xFFDCFCE7),
-            statusText = Color(0xFF166534),
-            warningPill = Color(0xFFFEE2E2),
-            warningText = Color(0xFF991B1B),
-            feedLabel = Color(0xFF64748B),
-            pinPill = Color(0xFFFDE68A),
-            pinText = Color(0xFF92400E),
-        )
-
-        WidgetThemeMode.Dark -> WidgetPalette(
-            background = when (backgroundMode) {
-                WidgetBackgroundMode.Solid -> Color(0xFF07111F)
-                WidgetBackgroundMode.Transparent -> Color(0xDD07111F)
-            },
-            card = Color(0xEE0B2035),
-            alertCard = Color(0xEE3B1724),
-            header = Color(0xFFBDEBFF),
-            storyTitle = Color(0xFF22D3EE),
-            alertTitle = Color(0xFFFCA5A5),
-            body = Color(0xFFE2E8F0),
-            muted = Color(0xFF93A4B8),
-            statusPill = Color(0xFF123D33),
-            statusText = Color(0xFF86EFAC),
-            warningPill = Color(0xFF3B1724),
-            warningText = Color(0xFFFCA5A5),
-            feedLabel = Color(0xFF93A4B8),
-            pinPill = Color(0xFF4A3410),
-            pinText = Color(0xFFFCD34D),
-        )
+): WidgetPalette {
+    val palette = vibe.palette(systemInDarkMode)
+    val background = when (backgroundMode) {
+        WidgetBackgroundMode.Solid -> palette.background
+        WidgetBackgroundMode.Transparent -> (palette.background and 0x00FFFFFF) or (0xDDL shl 24)
     }
+    return WidgetPalette(
+        background = Color(background),
+        card = Color(palette.panel),
+        alertCard = Color(palette.alertPanel),
+        header = Color(palette.textPrimary),
+        storyTitle = Color(palette.textPrimary),
+        alertTitle = Color(palette.accentRose),
+        body = Color(palette.textSecondary),
+        muted = Color(palette.textMuted),
+        statusPill = Color(palette.successPanel),
+        statusText = Color(palette.accentCyan),
+        warningPill = Color(palette.alertPanel),
+        warningText = Color(palette.accentRose),
+        feedLabel = Color(palette.textMuted),
+        pinPill = Color(palette.goldPanel),
+        pinText = Color(palette.accentGold),
+    )
+}
 
 private fun widgetMetaLine(
     storyCount: Int,
@@ -781,6 +783,16 @@ class ToggleRuntimeAction : ActionCallback {
     ) {
         NewsRepository.toggleRuntime()
         NewsWidget().updateAll(context)
+    }
+}
+
+class OpenAppAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters,
+    ) {
+        context.startActivity(openAppIntent(context))
     }
 }
 

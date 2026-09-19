@@ -29,11 +29,6 @@ enum class WidgetBackgroundMode {
     Transparent,
 }
 
-enum class WidgetThemeMode {
-    Light,
-    Dark,
-}
-
 enum class WidgetDensityMode {
     Comfortable,
     Compact,
@@ -149,7 +144,7 @@ data class WidgetPreset(
     val feedSourceIds: List<String> = emptyList(),
     val layoutMode: WidgetLayoutMode = WidgetLayoutMode.Column,
     val backgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.Solid,
-    val themeMode: WidgetThemeMode = WidgetThemeMode.Light,
+    val vibe: AppVibe = AppVibe.System,
     val densityMode: WidgetDensityMode = WidgetDensityMode.Comfortable,
     val typographyMode: WidgetTypographyMode = WidgetTypographyMode.Standard,
 )
@@ -167,7 +162,7 @@ data class RuntimeSettings(
     val widgetFeedSourceIds: List<String> = emptyList(),
     val widgetLayoutMode: WidgetLayoutMode = WidgetLayoutMode.Column,
     val widgetBackgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.Solid,
-    val widgetThemeMode: WidgetThemeMode = WidgetThemeMode.Light,
+    val appVibe: AppVibe = AppVibe.System,
     val widgetDensityMode: WidgetDensityMode = WidgetDensityMode.Comfortable,
     val widgetTypographyMode: WidgetTypographyMode = WidgetTypographyMode.Standard,
     val widgetStackIndex: Int = 0,

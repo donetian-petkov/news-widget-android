@@ -107,7 +107,7 @@ object RuntimePreferencesCodec {
                     .put("feedSourceIds", JSONArray(preset.feedSourceIds))
                     .put("layoutMode", preset.layoutMode.name)
                     .put("backgroundMode", preset.backgroundMode.name)
-                    .put("themeMode", preset.themeMode.name)
+                    .put("vibe", preset.vibe.name)
                     .put("densityMode", preset.densityMode.name)
                     .put("typographyMode", preset.typographyMode.name),
             )
@@ -144,9 +144,9 @@ object RuntimePreferencesCodec {
                             backgroundMode = item.optString("backgroundMode")
                                 .let { runCatching { WidgetBackgroundMode.valueOf(it) }.getOrNull() }
                                 ?: WidgetBackgroundMode.Solid,
-                            themeMode = item.optString("themeMode")
-                                .let { runCatching { WidgetThemeMode.valueOf(it) }.getOrNull() }
-                                ?: WidgetThemeMode.Light,
+                            vibe = item.optString("vibe")
+                                .let { runCatching { AppVibe.valueOf(it) }.getOrNull() }
+                                ?: AppVibe.System,
                             densityMode = item.optString("densityMode")
                                 .let { runCatching { WidgetDensityMode.valueOf(it) }.getOrNull() }
                                 ?: WidgetDensityMode.Comfortable,

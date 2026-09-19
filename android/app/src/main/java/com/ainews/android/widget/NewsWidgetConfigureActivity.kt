@@ -184,5 +184,5 @@ private fun presetDescription(preset: WidgetPreset, feedSources: List<FeedSource
         1 -> feedSources.firstOrNull { it.id == feedIds.single() }?.title ?: "All feeds"
         else -> "${feedIds.size} feeds"
     }
-    return "$feed - ${preset.layoutMode.name} - ${preset.themeMode.name} - ${preset.densityMode.name} - ${preset.typographyMode.name}"
+    return "$feed - ${preset.layoutMode.name} - ${preset.vibe.name} - ${preset.densityMode.name} - ${preset.typographyMode.name}"
 }

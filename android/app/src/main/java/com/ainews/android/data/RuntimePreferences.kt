@@ -55,9 +55,9 @@ class RuntimePreferences(
                 widgetBackgroundMode = prefs[Keys.widgetBackgroundMode]
                     ?.let { runCatching { WidgetBackgroundMode.valueOf(it) }.getOrNull() }
                     ?: WidgetBackgroundMode.Solid,
-                widgetThemeMode = prefs[Keys.widgetThemeMode]
-                    ?.let { runCatching { WidgetThemeMode.valueOf(it) }.getOrNull() }
-                    ?: WidgetThemeMode.Light,
+                appVibe = prefs[Keys.appVibe]
+                    ?.let { runCatching { AppVibe.valueOf(it) }.getOrNull() }
+                    ?: AppVibe.System,
                 widgetDensityMode = prefs[Keys.widgetDensityMode]
                     ?.let { runCatching { WidgetDensityMode.valueOf(it) }.getOrNull() }
                     ?: WidgetDensityMode.Comfortable,
@@ -137,7 +137,7 @@ class RuntimePreferences(
             prefs[Keys.widgetFeedSourceIds] = RuntimePreferencesCodec.stringListToJson(settings.widgetFeedSourceIds)
             prefs[Keys.widgetLayoutMode] = settings.widgetLayoutMode.name
             prefs[Keys.widgetBackgroundMode] = settings.widgetBackgroundMode.name
-            prefs[Keys.widgetThemeMode] = settings.widgetThemeMode.name
+            prefs[Keys.appVibe] = settings.appVibe.name
             prefs[Keys.widgetDensityMode] = settings.widgetDensityMode.name
             prefs[Keys.widgetTypographyMode] = settings.widgetTypographyMode.name
             prefs[Keys.widgetStackIndex] = settings.widgetStackIndex.toLong().coerceAtLeast(0)
@@ -200,7 +200,7 @@ class RuntimePreferences(
         val widgetFeedSourceIds = stringPreferencesKey("widget_feed_source_ids")
         val widgetLayoutMode = stringPreferencesKey("widget_layout_mode")
         val widgetBackgroundMode = stringPreferencesKey("widget_background_mode")
-        val widgetThemeMode = stringPreferencesKey("widget_theme_mode")
+        val appVibe = stringPreferencesKey("widget_theme_mode")
         val widgetDensityMode = stringPreferencesKey("widget_density_mode")
         val widgetTypographyMode = stringPreferencesKey("widget_typography_mode")
         val widgetStackIndex = longPreferencesKey("widget_stack_index")

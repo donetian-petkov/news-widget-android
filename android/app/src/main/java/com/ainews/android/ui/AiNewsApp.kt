@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
@@ -59,7 +60,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -104,7 +109,7 @@ import com.ainews.android.data.WidgetBackgroundMode
 import com.ainews.android.data.WidgetDensityMode
 import com.ainews.android.data.WidgetLayoutMode
 import com.ainews.android.data.WidgetPreset
-import com.ainews.android.data.WidgetThemeMode
+import com.ainews.android.data.AppVibe
 import com.ainews.android.data.WidgetTypographyMode
 import com.ainews.android.data.aiBudgetText
 import com.ainews.android.data.aiConfigured
@@ -141,23 +146,37 @@ fun AiNewsApp() {
         }
     }
 
-    val colorScheme = if (state.settings.widgetThemeMode == WidgetThemeMode.Dark) {
+    val systemInDarkMode = isSystemInDarkTheme()
+    val palette = state.settings.appVibe.palette(systemInDarkMode)
+    val colorScheme = if (state.settings.appVibe.isDark(systemInDarkMode)) {
         darkColorScheme(
-            background = Color(0xFF07111F),
-            surface = Color(0xFF0B2035),
-            primary = Color(0xFF8B5CF6),
-            onSurface = Color(0xFFEAF6FF),
-            onSurfaceVariant = Color(0xFFB7C5D8),
-            outlineVariant = Color(0xFF27415B),
+            background = Color(palette.background),
+            surface = Color(palette.panel),
+            surfaceVariant = Color(palette.backgroundAlt),
+            primary = Color(palette.accentBlue),
+            secondary = Color(palette.accentCyan),
+            tertiary = Color(palette.accentGold),
+            error = Color(palette.accentRose),
+            onSurface = Color(palette.textPrimary),
+            onSurfaceVariant = Color(palette.textSecondary),
+            onBackground = Color(palette.textPrimary),
+            outlineVariant = Color(palette.chipPanel),
+            outline = Color(palette.panelBorder),
         )
     } else {
         lightColorScheme(
-            background = Color(0xFFF8FAFC),
-            surface = Color.White,
-            primary = Color(0xFF6D54B8),
-            onSurface = Color(0xFF0F172A),
-            onSurfaceVariant = Color(0xFF475569),
-            outlineVariant = Color(0xFFE2E8F0),
+            background = Color(palette.background),
+            surface = Color(palette.panel),
+            surfaceVariant = Color(palette.backgroundAlt),
+            primary = Color(palette.accentBlue),
+            secondary = Color(palette.accentCyan),
+            tertiary = Color(palette.accentGold),
+            error = Color(palette.accentRose),
+            onSurface = Color(palette.textPrimary),
+            onSurfaceVariant = Color(palette.textSecondary),
+            onBackground = Color(palette.textPrimary),
+            outlineVariant = Color(palette.chipPanel),
+            outline = Color(palette.panelBorder),
         )
     }
 
@@ -165,6 +184,7 @@ fun AiNewsApp() {
         scope.launch { NewsWidget().updateAll(context) }
     }
 
+    CompositionLocalProvider(LocalAppPalette provides palette) {
     MaterialTheme(colorScheme = colorScheme) {
         ModalNavigationDrawer(
             drawerState = drawerState,
@@ -408,7 +428,10 @@ fun AiNewsApp() {
         }
         }
     }
+    }
 }
+
+private val LocalAppPalette = staticCompositionLocalOf { AppVibe.Light.palette(false) }
 
 private enum class AppScreen {
     Feed,
@@ -502,6 +525,44 @@ private fun NewsFeed(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+
+        if (storyCount > 0) {
+            item {
+                val fetching = state.runtime.lastFetchStatus == FetchStatus.Fetching
+                // Reaching the end asks the feeds for anything newer they are publishing.
+                LaunchedEffect(storyCount) {
+                    if (!fetching && state.runtime.runtimeEnabled) onRefresh()
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 18.dp),
+                ) {
+                    if (fetching) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = "Checking the feeds for more",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        TextButton(onClick = onRefresh, enabled = state.runtime.runtimeEnabled) {
+                            Text("Check for more stories")
+                        }
+                        Text(
+                            text = "$storyCount stories loaded",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }
@@ -740,7 +801,7 @@ private fun Header(
             Text(
                 text = it,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF0369A1),
+                color = Color(LocalAppPalette.current.accentBlue),
             )
         }
 
@@ -757,14 +818,14 @@ private fun Header(
 
         state.monitors.filter { it.lastMatchStoryId != null }.forEach { monitor ->
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFE0F2FE)),
+                colors = CardDefaults.cardColors(containerColor = Color(LocalAppPalette.current.infoPanel)),
                 shape = RoundedCornerShape(8.dp),
             ) {
                 Column(Modifier.padding(12.dp)) {
                     Text(
                         text = "Alert match ${monitor.lastMatchConfidence?.let { "${(it * 100).toInt()}%" } ?: ""}",
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF075985),
+                        color = Color(LocalAppPalette.current.accentBlue),
                     )
                     Text(
                         text = monitor.sentence,
@@ -1016,8 +1077,8 @@ private fun SetupChecklistCard(
     val items = setupChecklistItems(state)
     val completedCount = items.count { it.complete }
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F9FF)),
-        border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+        colors = CardDefaults.cardColors(containerColor = Color(LocalAppPalette.current.infoPanel)),
+        border = BorderStroke(1.dp, Color(LocalAppPalette.current.panelBorder)),
         shape = RoundedCornerShape(8.dp),
     ) {
         Column(
@@ -1033,12 +1094,12 @@ private fun SetupChecklistCard(
                     Text(
                         text = "Setup checklist",
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF075985),
+                        color = Color(LocalAppPalette.current.accentBlue),
                     )
                     Text(
                         text = "$completedCount/${items.size} ready",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF0369A1),
+                        color = Color(LocalAppPalette.current.accentCyan),
                     )
                 }
                 TextButton(onClick = onDismiss) {
@@ -1049,7 +1110,11 @@ private fun SetupChecklistCard(
                 Text(
                     text = "${if (item.complete) "Done" else "Todo"} - ${item.title}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (item.complete) Color(0xFF166534) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (item.complete) {
+                        Color(LocalAppPalette.current.accentCyan)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
             }
             FlowRow(
@@ -1317,7 +1382,11 @@ private fun MonitorScreen(
                         Text(
                             text = if (monitor.enabled) "Enabled" else "Paused",
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (monitor.enabled) Color(0xFF166534) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (monitor.enabled) {
+                                Color(LocalAppPalette.current.accentCyan)
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                         )
                         Switch(
                             checked = monitor.enabled,
@@ -1653,7 +1722,7 @@ private fun SettingsScreen(
                 }
 
                 Text(
-                    text = "Theme",
+                    text = "Theme (app and widget)",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1661,11 +1730,11 @@ private fun SettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    WidgetThemeMode.values().forEach { mode ->
+                    AppVibe.values().forEach { mode ->
                         TopicChip(
-                            text = mode.name,
-                            selected = draft.widgetThemeMode == mode,
-                            onClick = { draft = draft.copy(widgetThemeMode = mode) },
+                            text = mode.label,
+                            selected = draft.appVibe == mode,
+                            onClick = { draft = draft.copy(appVibe = mode) },
                         )
                     }
                 }
@@ -1728,7 +1797,7 @@ private fun SettingsScreen(
                                 feedSourceIds = selectedWidgetFeedIds,
                                 layoutMode = draft.widgetLayoutMode,
                                 backgroundMode = draft.widgetBackgroundMode,
-                                themeMode = draft.widgetThemeMode,
+                                vibe = draft.appVibe,
                                 densityMode = draft.widgetDensityMode,
                                 typographyMode = draft.widgetTypographyMode,
                             )
@@ -1758,7 +1827,7 @@ private fun SettingsScreen(
                                     widgetFeedSourceIds = presetFeedIds,
                                     widgetLayoutMode = preset.layoutMode,
                                     widgetBackgroundMode = preset.backgroundMode,
-                                    widgetThemeMode = preset.themeMode,
+                                    appVibe = preset.vibe,
                                     widgetDensityMode = preset.densityMode,
                                     widgetTypographyMode = preset.typographyMode,
                                     widgetStackIndex = 0,
@@ -1838,7 +1907,7 @@ private fun SavedWidgetPresetRow(
         Column(Modifier.weight(1f)) {
             Text(preset.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
             Text(
-                text = "$feedTitle - ${preset.layoutMode.name} - ${preset.backgroundMode.name} - ${preset.themeMode.name} - ${preset.densityMode.name} - ${preset.typographyMode.name}",
+                text = "$feedTitle - ${preset.layoutMode.name} - ${preset.backgroundMode.name} - ${preset.vibe.name} - ${preset.densityMode.name} - ${preset.typographyMode.name}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1892,7 +1961,7 @@ private fun WidgetInstanceRow(
         }
         selectedPreset?.let { preset ->
             Text(
-                text = "${widgetFeedTitle(preset.effectiveFeedSourceIds(), feedSources)} - ${preset.layoutMode.name} - ${preset.themeMode.name} - ${preset.densityMode.name} - ${preset.typographyMode.name}",
+                text = "${widgetFeedTitle(preset.effectiveFeedSourceIds(), feedSources)} - ${preset.layoutMode.name} - ${preset.vibe.name} - ${preset.densityMode.name} - ${preset.typographyMode.name}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1990,6 +2059,7 @@ private fun StoryCard(
     onToggleSave: () -> Unit,
     onShare: () -> Unit,
 ) {
+    val palette = LocalAppPalette.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -2013,16 +2083,16 @@ private fun StoryCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (story.isNew) {
-                    Badge("NEW", Color(0xFFDCFCE7), Color(0xFF166534))
+                    Badge("NEW", Color(palette.successPanel), Color(palette.accentCyan))
                 }
                 if (isAlert) {
-                    Badge("ALERT", Color(0xFFFEE2E2), Color(0xFF991B1B))
+                    Badge("ALERT", Color(palette.alertPanel), Color(palette.accentRose))
                 }
                 if (story.isPinned) {
-                    Badge("PIN", Color(0xFFFDE68A), Color(0xFF92400E))
+                    Badge("PIN", Color(palette.goldPanel), Color(palette.accentGold))
                 }
                 if (story.isSaved) {
-                    Badge("SAVED", Color(0xFFDCFCE7), Color(0xFF166534))
+                    Badge("SAVED", Color(palette.successPanel), Color(palette.accentCyan))
                 }
             }
 
@@ -2049,10 +2119,10 @@ private fun StoryCard(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 story.topicLabels.forEach {
-                    Badge(it, Color(0xFFE0F2FE), Color(0xFF075985))
+                    Badge(it, Color(palette.infoPanel), Color(palette.accentBlue))
                 }
                 if (story.aiFieldsAvailable) {
-                    Badge("AI", Color(0xFFF1F5F9), MaterialTheme.colorScheme.onSurfaceVariant)
+                    Badge("AI", Color(palette.chipPanel), Color(palette.textMuted))
                 }
             }
 
@@ -2187,9 +2257,12 @@ private fun StoryDetail(
 private fun DetailBlock(title: String, body: String, highlighted: Boolean = false) {
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = if (highlighted) Color(0xFFE0F2FE) else MaterialTheme.colorScheme.surface,
+            containerColor = if (highlighted) Color(LocalAppPalette.current.infoPanel) else MaterialTheme.colorScheme.surface,
         ),
-        border = BorderStroke(1.dp, if (highlighted) Color(0xFF38BDF8) else MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(
+            1.dp,
+            if (highlighted) Color(LocalAppPalette.current.accentBlue) else MaterialTheme.colorScheme.outlineVariant,
+        ),
         shape = RoundedCornerShape(8.dp),
     ) {
         Column(Modifier.padding(14.dp)) {
@@ -2268,7 +2341,7 @@ private fun StatusDot(active: Boolean) {
         modifier = Modifier
             .size(14.dp)
             .background(
-                color = if (active) Color(0xFF16A34A) else Color(0xFF94A3B8),
+                color = if (active) Color(LocalAppPalette.current.accentCyan) else Color(LocalAppPalette.current.textMuted),
                 shape = RoundedCornerShape(7.dp),
             ),
     )
@@ -2556,7 +2629,11 @@ private fun HistoryScreen(
                     Text(
                         text = if (record.success) "OK" else "Failed",
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (record.success) Color(0xFF166534) else Color(0xFF991B1B),
+                        color = if (record.success) {
+                            Color(LocalAppPalette.current.accentCyan)
+                        } else {
+                            Color(LocalAppPalette.current.accentRose)
+                        },
                     )
                 }
                 Text(
