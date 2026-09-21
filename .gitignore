@@ -30,3 +30,6 @@ secrets.properties
 Thumbs.db
 *.swp
 *.swo
+
+# The debug key is deliberately in the repository so every build installs over the last.
+!android/keystore/debug.keystore

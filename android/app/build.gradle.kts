@@ -17,6 +17,18 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        // A debug key of its own, kept in the repository. Without it every build machine
+        // invents its own key, the signatures do not match, and installing a new build means
+        // uninstalling the old one first - which takes the widget off the home screen.
+        getByName("debug") {
+            storeFile = rootProject.file("keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildFeatures {
         compose = true
     }

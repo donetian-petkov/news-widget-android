@@ -163,10 +163,15 @@ if tap "Save story" desc 3; then
   tap "Remove from library" desc 3 && wait_for "Save story" 20 && check "unsave a story" 0 || check "unsave a story" 1
 else check "save a story" 1 "no save button"; fi
 
+BEFORE_TEXT="$(widget | wc -c | tr -d ' ')"
 if tap "Show the whole story" desc 5; then
-  reach "Show less" && check "expand a story" 0 || check "expand a story" 1
+  reach "Show less" >/dev/null
+  AFTER_TEXT="$(widget | wc -c | tr -d ' ')"
+  [ "$AFTER_TEXT" -gt "$BEFORE_TEXT" ] \
+    && check "expanding a story shows more text" 0 "$BEFORE_TEXT -> $AFTER_TEXT chars" \
+    || check "expanding a story shows more text" 1 "$BEFORE_TEXT -> $AFTER_TEXT chars"
   tap "Show less" desc 5 && check "collapse a story" 0 || check "collapse a story" 1
-else check "expand a story" 1 "no expand button"; fi
+else check "expanding a story shows more text" 1 "no expand button"; fi
 
 scroll up 6
 BEFORE="$(titles)"
@@ -217,6 +222,37 @@ if tap "Open source" desc 7; then
 else check "open the source in the browser" 1 "no open button"; fi
 tap "Show column mode" desc 3
 wait_for " of " 20 && check "back to column mode" 0 "$(counter)" || check "back to column mode" 1
+
+echo
+echo "== AI"
+"$ADB" shell am start -n com.ainews.android/.MainActivity >/dev/null; sleep 8
+tap "open navigation" any 3
+for _ in 1 2 3 4 5 6; do point "Settings" text >/dev/null && break; "$ADB" shell input swipe 300 1700 300 1100 200; sleep 1; done
+tap "Settings" text 5
+for _ in 1 2 3 4 5 6 7 8; do point "Test key" any >/dev/null && break; "$ADB" shell input swipe 540 1600 540 900 200; sleep 1; done
+APP="$("$HERE/ui_text.py" "$ADB")"
+case "$APP" in
+  *"A key is saved"*)
+    check "settings says a key is saved" 0
+    tap "Test key" any 3
+    OK=1
+    for _ in $(seq 1 15); do
+      sleep 3
+      case "$("$HERE/ui_text.py" "$ADB")" in
+        *"Key works"*) OK=0; break;;
+        *"Key did not work"*) OK=1; break;;
+      esac
+    done
+    check "the provider accepts the key" "$OK"
+    ;;
+  *"No key saved"*)
+    check "settings says whether a key is saved" 0 "no key on this install, so the AI calls are not exercised"
+    ;;
+  *) check "settings says whether a key is saved" 1 "neither message is on screen";;
+esac
+"$ADB" shell input keyevent KEYCODE_BACK; sleep 2
+"$ADB" shell input keyevent KEYCODE_BACK; sleep 2
+home
 
 echo
 echo "== Health"
