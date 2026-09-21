@@ -79,10 +79,13 @@ import com.ainews.android.data.effectiveFeedSourceIds
 import com.ainews.android.data.effectiveWidgetFeedSourceIds
 import com.ainews.android.network.ImageDiskCache
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -99,8 +102,7 @@ private val storyCountKey = intPreferencesKey("story-count")
 private val layoutModeKey = stringPreferencesKey("layout-mode")
 private val stackIndexKey = intPreferencesKey("stack-index")
 
-private const val WIDGET_IMAGE_LIMIT = 16
-private const val WIDGET_IMAGE_DOWNLOADS = 10
+private const val WIDGET_IMAGE_TIMEOUT_MILLIS = 4_000L
 private const val WIDGET_PAGE_SIZE = 10
 
 /** How many story cards fit in a widget of this height without scrolling. */
@@ -137,23 +139,24 @@ class NewsWidget : GlanceAppWidget() {
                 .drop(page * WIDGET_PAGE_SIZE)
                 .take(WIDGET_PAGE_SIZE)
         }
-        // Thumbnails for the stories actually on screen: whatever is cached, and a few
-        // downloaded on the spot so a page you have just opened is not left bare.
-        var downloads = 0
-        val cachedImages = visibleForImages
-            .take(WIDGET_IMAGE_LIMIT)
-            .mapNotNull { story ->
-                val imageUrl = story.imageUrl ?: return@mapNotNull null
-                val cached = imageDiskCache.loadCachedThumbnail(context, imageUrl)
-                val bitmap = cached ?: if (downloads < WIDGET_IMAGE_DOWNLOADS) {
-                    downloads += 1
-                    runCatching { imageDiskCache.loadOrFetchThumbnail(context, imageUrl) }.getOrNull()
-                } else {
-                    null
+        // Only the stories about to be drawn get an image, fetched together when the widget
+        // updates - which is exactly on refresh, load more and load previous.
+        val cachedImages = coroutineScope {
+            visibleForImages
+                .mapNotNull { story -> story.imageUrl?.let { story.id to it } }
+                .map { (id, url) ->
+                    async(Dispatchers.IO) {
+                        val bitmap = imageDiskCache.loadCachedThumbnail(context, url)
+                            ?: withTimeoutOrNull(WIDGET_IMAGE_TIMEOUT_MILLIS) {
+                                runCatching { imageDiskCache.loadOrFetchThumbnail(context, url) }.getOrNull()
+                            }
+                        bitmap?.let { id to it }
+                    }
                 }
-                bitmap?.let { story.id to it }
-            }
-            .toMap()
+                .awaitAll()
+                .filterNotNull()
+                .toMap()
+        }
         android.util.Log.d(
             "AiNewsWidget",
             "page images: ${visibleForImages.count { it.imageUrl != null }} of " +

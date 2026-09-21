@@ -372,7 +372,8 @@ data class NewsUiState(
     val prioritizedStories: List<NewsStory>
         get() {
             val alertStoryIds = alertMatches.map { it.storyId }.toSet()
-            return visibleStories.sortedWith(
+            // The same story can arrive from two feeds; a repeated id crashes the app list.
+            return visibleStories.distinctBy { it.id }.sortedWith(
                 compareByDescending<NewsStory> { it.isPinned }
                     .thenByDescending { it.id in alertStoryIds }
                     .thenByDescending { it.publishedAt },

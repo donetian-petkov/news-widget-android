@@ -4,6 +4,11 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
@@ -61,10 +66,13 @@ class ImageDiskCache(
         }
 
     suspend fun prefetch(context: Context, imageUrls: List<String>) {
-        withContext(Dispatchers.IO) {
-            imageUrls.distinct().take(PREFETCH_LIMIT).forEach { imageUrl ->
-                runCatching { getOrFetch(context, imageUrl) }
-            }
+        coroutineScope {
+            val gate = Semaphore(PREFETCH_PARALLELISM)
+            imageUrls.distinct().take(PREFETCH_LIMIT).map { imageUrl ->
+                async(Dispatchers.IO) {
+                    gate.withPermit { runCatching { getOrFetch(context, imageUrl) } }
+                }
+            }.awaitAll()
         }
     }
 
@@ -75,8 +83,8 @@ class ImageDiskCache(
 
         val temp = File(target.parentFile, "${target.name}.tmp")
         val connection = (URL(imageUrl).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 8_000
-            readTimeout = 10_000
+            connectTimeout = 5_000
+            readTimeout = 6_000
             requestMethod = "GET"
             setRequestProperty("User-Agent", "AI-News-Android/0.1")
         }
@@ -122,7 +130,8 @@ class ImageDiskCache(
 
     companion object {
         const val CACHE_DIR_NAME = "story-images"
-        const val PREFETCH_LIMIT = 120
+        const val PREFETCH_LIMIT = 60
+        const val PREFETCH_PARALLELISM = 6
         const val THUMBNAIL_MAX_PX = 88
         const val DEFAULT_MAX_BYTES = 5L * 1024L * 1024L
         const val DEFAULT_MAX_AGE_MILLIS = 7L * 24L * 60L * 60L * 1000L

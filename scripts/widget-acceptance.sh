@@ -31,6 +31,8 @@ first_headline() { dump | grep -o 'text="[^"]\{25,\}"' | grep -v "Updated" | hea
 scroll_to_end() { for _ in $(seq 1 12); do "$ADB" shell input swipe 540 1150 540 750 160; done; }
 shot() { "$ADB" shell screencap -p /sdcard/s.png >/dev/null; "$ADB" pull /sdcard/s.png "$SHOTS/$1.png" >/dev/null; }
 
+"$ADB" logcat -c >/dev/null 2>&1 || true   # only judge errors from this run
+
 echo "== Clean install and add the widget"
 SHOT="$SHOTS/00-installed.png" "$HERE/widget-clean-install.sh" >/dev/null 2>&1
 

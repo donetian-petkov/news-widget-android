@@ -7,7 +7,9 @@ import com.ainews.android.network.AiEnrichmentClient
 import com.ainews.android.network.ImageDiskCache
 import com.ainews.android.network.FeedFetchOutcome
 import com.ainews.android.network.RssFeedFetcher
+import androidx.glance.appwidget.updateAll
 import com.ainews.android.notifications.AlertNotifier
+import com.ainews.android.widget.NewsWidget
 import com.ainews.android.worker.AutoPowerOffWorker
 import com.ainews.android.worker.MonitorScanWorker
 import com.ainews.android.worker.RefreshAlarmReceiver
@@ -742,7 +744,6 @@ object NewsRepository {
         }
         withContext(Dispatchers.IO) {
             storyDao.upsertStories(storiesToStore.map { it.toEntity() })
-            imageDiskCache.prefetch(appContext, storiesToStore.mapNotNull { it.imageUrl })
             if (refreshResult.sameStorySet) {
                 storyDao.clearNewMarkers()
             }
