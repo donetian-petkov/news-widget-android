@@ -78,7 +78,9 @@ import com.ainews.android.data.WidgetTypographyMode
 import com.ainews.android.data.effectiveFeedSourceIds
 import com.ainews.android.data.effectiveWidgetFeedSourceIds
 import com.ainews.android.network.ImageDiskCache
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -102,7 +104,7 @@ private val storyCountKey = intPreferencesKey("story-count")
 private val layoutModeKey = stringPreferencesKey("layout-mode")
 private val stackIndexKey = intPreferencesKey("stack-index")
 
-private const val WIDGET_IMAGE_TIMEOUT_MILLIS = 4_000L
+private const val WIDGET_IMAGE_TIMEOUT_MILLIS = 9_000L
 private const val WIDGET_PAGE_SIZE = 10
 
 /** How many story cards fit in a widget of this height without scrolling. */
@@ -141,21 +143,29 @@ class NewsWidget : GlanceAppWidget() {
         }
         // Only the stories about to be drawn get an image, fetched together when the widget
         // updates - which is exactly on refresh, load more and load previous.
+        val wanted = visibleForImages.mapNotNull { story -> story.imageUrl?.let { story.id to it } }
         val cachedImages = coroutineScope {
-            visibleForImages
-                .mapNotNull { story -> story.imageUrl?.let { story.id to it } }
-                .map { (id, url) ->
-                    async(Dispatchers.IO) {
-                        val bitmap = imageDiskCache.loadCachedThumbnail(context, url)
-                            ?: withTimeoutOrNull(WIDGET_IMAGE_TIMEOUT_MILLIS) {
-                                runCatching { imageDiskCache.loadOrFetchThumbnail(context, url) }.getOrNull()
-                            }
-                        bitmap?.let { id to it }
-                    }
+            wanted.map { (id, url) ->
+                async(Dispatchers.IO) {
+                    val bitmap = imageDiskCache.loadCachedThumbnail(context, url)
+                        ?: withTimeoutOrNull(WIDGET_IMAGE_TIMEOUT_MILLIS) {
+                            runCatching { imageDiskCache.loadOrFetchThumbnail(context, url) }.getOrNull()
+                        }
+                    bitmap?.let { id to it }
                 }
-                .awaitAll()
-                .filterNotNull()
-                .toMap()
+            }.awaitAll().filterNotNull().toMap()
+        }
+        val missing = wanted.filterNot { (id, _) -> cachedImages.containsKey(id) }
+        if (missing.isNotEmpty()) {
+            // A slow image must not hold up the whole widget, so the stragglers finish in
+            // the background and the widget is drawn again when they land.
+            android.util.Log.d("AiNewsWidget", "still fetching ${missing.size} thumbnails")
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                missing.forEach { (_, url) ->
+                    runCatching { imageDiskCache.loadOrFetchThumbnail(context, url) }
+                }
+                NewsWidget().update(context, id)
+            }
         }
         android.util.Log.d(
             "AiNewsWidget",
