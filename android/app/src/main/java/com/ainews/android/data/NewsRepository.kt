@@ -696,15 +696,22 @@ object NewsRepository {
         delay(200)
 
         if (fetchedStories.isEmpty()) {
+            // A fetch attempted while the phone is dozing or offline fails every feed at
+            // once with a DNS error. That is not the feeds being broken, so do not say so.
+            val offline = !hasNetwork(appContext)
             _state.update { current ->
                 val runtime = current.runtime.copy(
                     lastFetchFinishedAt = System.currentTimeMillis(),
-                    lastFetchStatus = FetchStatus.Failed,
+                    lastFetchStatus = if (offline) FetchStatus.Idle else FetchStatus.Failed,
                 )
                 persistRuntime(runtime)
                 current.copy(
                     runtime = runtime,
-                    message = "Refresh failed - keeping saved stories",
+                    message = if (offline) {
+                        "No connection - keeping saved stories"
+                    } else {
+                        "Refresh failed - keeping saved stories"
+                    },
                 )
             }
             return
@@ -898,6 +905,12 @@ object NewsRepository {
             )
         }
         return true
+    }
+
+    private fun hasNetwork(context: Context): Boolean {
+        val manager = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return true
+        val capabilities = manager.getNetworkCapabilities(manager.activeNetwork) ?: return false
+        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     private fun neutralTitlesEnabledForStory(feedSources: List<FeedSource>, story: NewsStory): Boolean =

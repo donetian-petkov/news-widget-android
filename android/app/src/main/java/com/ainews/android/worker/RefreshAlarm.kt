@@ -24,6 +24,10 @@ class RefreshAlarmReceiver : BroadcastReceiver() {
         val appContext = context.applicationContext
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
+                val manager = appContext.getSystemService(android.net.ConnectivityManager::class.java)
+                val online = manager?.getNetworkCapabilities(manager.activeNetwork)
+                    ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) ?: false
+                if (!online) return@launch
                 NewsRepository.initialize(appContext)
                 NewsRepository.refreshNow()
                 NewsWidget().updateAll(appContext)

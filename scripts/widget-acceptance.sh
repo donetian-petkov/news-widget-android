@@ -112,7 +112,14 @@ for _ in 1 2 3; do "$ADB" shell input swipe 540 750 540 1150 160; done
 E="$(find_node 'Show the whole story' desc)"
 if [ -n "$E" ]; then
   "$ADB" shell input tap $E; sleep 4
-  dump | grep -q 'content-desc="Show less"' && check "card expands on demand" 0 || check "card expands on demand" 1
+  # An expanded card is tall, so its chevron can sit below the fold.
+  FOUND=1
+  for _ in 1 2 3 4; do
+    dump | grep -q 'content-desc="Show less"' && { FOUND=0; break; }
+    "$ADB" shell input swipe 540 1150 540 900 160
+    sleep 1
+  done
+  check "card expands on demand" "$FOUND"
   L="$(find_node 'Show less' desc)"; [ -n "$L" ] && "$ADB" shell input tap $L && sleep 2
 else
   check "expand control exists" 1

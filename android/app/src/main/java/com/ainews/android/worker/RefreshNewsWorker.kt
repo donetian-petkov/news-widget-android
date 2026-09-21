@@ -1,7 +1,9 @@
 package com.ainews.android.worker
 
 import android.content.Context
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.NetworkType
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -30,7 +32,13 @@ class RefreshNewsWorker(
             val request = PeriodicWorkRequestBuilder<RefreshNewsWorker>(
                 cadenceMinutes.coerceAtLeast(15),
                 TimeUnit.MINUTES,
-            ).build()
+            )
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build(),
+                )
+                .build()
 
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
