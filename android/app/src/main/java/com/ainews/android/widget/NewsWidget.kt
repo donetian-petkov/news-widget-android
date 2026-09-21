@@ -201,7 +201,7 @@ class NewsWidget : GlanceAppWidget() {
             val settling = widgetState[settlingKey] ?: false
             // A widget update travels as one RemoteViews parcel, which is why the list has a
             // ceiling: past it rows come back empty.
-            val storyLimit = if (settling) 1 else pageSize
+            val storyLimit = pageSize
             // A fetch that died with the process would otherwise leave the spinner up forever.
             val fetching = state.runtime.lastFetchStatus == FetchStatus.Fetching &&
                 (System.currentTimeMillis() - (state.runtime.lastFetchStartedAt ?: 0L)) < STALE_FETCH_MILLIS
@@ -334,6 +334,35 @@ class NewsWidget : GlanceAppWidget() {
                 }
 
                 Spacer(GlanceModifier.height(metrics.sectionGap))
+
+                if (settling && !stackMode) {
+                    // The clamp frame: a short, deliberate loading line while the list is
+                    // reset to the top, instead of flashing a single story.
+                    Column(
+                        modifier = GlanceModifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                color = ColorProvider(palette.statusText),
+                                modifier = GlanceModifier.size(16.dp),
+                            )
+                            Spacer(GlanceModifier.width(10.dp))
+                            Text(
+                                text = "Loading stories $firstStoryNumber-" +
+                                    "${minOf(firstStoryNumber + pageSize - 1, allWidgetStories.size)}",
+                                style = TextStyle(
+                                    color = ColorProvider(palette.muted),
+                                    fontSize = type.meta,
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    return@Column
+                }
 
                 val storyRows = buildList {
                     var previousSource: String? = null
