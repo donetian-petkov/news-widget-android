@@ -1073,7 +1073,7 @@ private suspend fun turnPage(context: Context, appWidgetId: Int, glanceId: Glanc
 }
 
 private suspend fun settle(context: Context, appWidgetId: Int, glanceId: GlanceId) {
-    delay(120)
+    delay(450)
     editWidgetState(context, appWidgetId, glanceId) { prefs -> prefs[settlingKey] = false }
 }
 

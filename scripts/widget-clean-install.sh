@@ -4,6 +4,9 @@
 # Elements are located by name from a UI dump, so it survives layout changes.
 set -euo pipefail
 
+# Target the emulator by default: a plugged-in phone must not be touched by tests.
+ANDROID_SERIAL="${ANDROID_SERIAL:-$("$HOME/Library/Android/sdk/platform-tools/adb" devices | awk '/emulator-/{print $1; exit}')}"
+export ANDROID_SERIAL
 ADB="${ADB:-$HOME/Library/Android/sdk/platform-tools/adb}"
 APK="${APK:-android/app/build/outputs/apk/debug/app-debug.apk}"
 SHOT="${SHOT:-/tmp/ai-news-widget.png}"

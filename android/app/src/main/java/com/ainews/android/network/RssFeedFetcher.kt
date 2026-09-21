@@ -1,6 +1,13 @@
 package com.ainews.android.network
 
 import com.ainews.android.data.FeedFetchRecord
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import com.ainews.android.data.FeedSource
 import com.ainews.android.data.NewsStory
 import com.ainews.android.data.defaultFeedSources
@@ -18,55 +25,65 @@ data class FeedFetchOutcome(
     val records: List<FeedFetchRecord>,
 )
 
+private const val MAX_PARALLEL_FEEDS = 6
+
 class RssFeedFetcher {
     fun fetchTopStories(
         sources: List<FeedSource> = defaultFeedSources,
         limitPerFeed: Int = 20,
-    ): List<NewsStory> = fetchTopStoriesWithHistory(sources, limitPerFeed).stories
+    ): List<NewsStory> = runBlocking { fetchTopStoriesWithHistory(sources, limitPerFeed).stories }
 
     /**
      * Fetches every enabled feed and also reports how each one went, so the app can show
      * a fetch history and flag sources that keep failing.
      */
-    fun fetchTopStoriesWithHistory(
+    suspend fun fetchTopStoriesWithHistory(
         sources: List<FeedSource> = defaultFeedSources,
         limitPerFeed: Int = 20,
-    ): FeedFetchOutcome {
-        val stories = mutableListOf<NewsStory>()
-        val records = mutableListOf<FeedFetchRecord>()
-        sources.filter { it.fetchEnabled }.forEach { source ->
-            val startedAt = System.currentTimeMillis()
-            val result = runCatching { fetchSource(source, limitPerFeed) }
-            val finishedAt = System.currentTimeMillis()
-            val fetched = result.getOrDefault(emptyList())
-            stories.addAll(fetched)
-            records.add(
-                FeedFetchRecord(
-                    id = "fetch-${source.id}-$finishedAt",
-                    feedId = source.id,
-                    feedTitle = source.title,
-                    startedAt = startedAt,
-                    finishedAt = finishedAt,
-                    success = result.isSuccess && fetched.isNotEmpty(),
-                    storyCount = fetched.size,
-                    message = when {
-                        result.isFailure -> result.exceptionOrNull()?.message ?: "Fetch failed"
-                        fetched.isEmpty() -> "No stories returned"
-                        else -> "OK"
-                    },
-                ),
-            )
-        }
-        return FeedFetchOutcome(
-            stories = stories.sortedByDescending { it.publishedAt },
-            records = records,
+    ): FeedFetchOutcome = coroutineScope {
+        // Feeds are fetched together: one slow feed used to hold up every feed behind it,
+        // which is how a refresh could sit on "Updating" for minutes.
+        val gate = Semaphore(MAX_PARALLEL_FEEDS)
+        val results = sources.filter { it.fetchEnabled }.map { source ->
+            async(Dispatchers.IO) {
+                gate.withPermit {
+                    val startedAt = System.currentTimeMillis()
+                    val result = runCatching { fetchSource(source, limitPerFeed) }
+                    val finishedAt = System.currentTimeMillis()
+                    val fetched = result.getOrDefault(emptyList())
+                    result.exceptionOrNull()?.let { failure ->
+                        // Worth keeping: a feed that stops resolving or times out is the
+                        // usual reason a refresh comes back with nothing.
+                        android.util.Log.w("AiNewsRefresh", "feed ${source.title} failed: $failure")
+                    }
+                    fetched to FeedFetchRecord(
+                        id = "fetch-${source.id}-$finishedAt",
+                        feedId = source.id,
+                        feedTitle = source.title,
+                        startedAt = startedAt,
+                        finishedAt = finishedAt,
+                        success = result.isSuccess && fetched.isNotEmpty(),
+                        storyCount = fetched.size,
+                        message = when {
+                            result.isFailure -> result.exceptionOrNull()?.message ?: "Fetch failed"
+                            fetched.isEmpty() -> "No stories returned"
+                            else -> "OK"
+                        },
+                    )
+                }
+            }
+        }.awaitAll()
+
+        FeedFetchOutcome(
+            stories = results.flatMap { it.first }.sortedByDescending { it.publishedAt },
+            records = results.map { it.second },
         )
     }
 
     private fun fetchSource(source: FeedSource, limit: Int): List<NewsStory> {
         val connection = (URL(source.url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 10_000
-            readTimeout = 12_000
+            connectTimeout = 6_000
+            readTimeout = 8_000
             requestMethod = "GET"
             setRequestProperty("User-Agent", "AI-News-Android/0.1")
         }

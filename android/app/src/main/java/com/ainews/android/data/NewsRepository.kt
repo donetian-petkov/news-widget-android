@@ -35,6 +35,7 @@ object NewsRepository {
     private lateinit var fetchHistoryDao: FetchHistoryDao
     private lateinit var runtimePreferences: RuntimePreferences
     private lateinit var secureProviderKeyStore: SecureProviderKeyStore
+    private val refreshLock = java.util.concurrent.Semaphore(1)
     private val rssFeedFetcher = RssFeedFetcher()
     private val remoteBackendClient = RemoteBackendClient()
     private val aiEnrichmentClient = AiEnrichmentClient()
@@ -121,6 +122,11 @@ object NewsRepository {
         repositoryScope.launch {
             if (storyDao.countStories() == 0) {
                 storyDao.upsertStories(seedStories().map { it.toEntity() })
+            }
+            // A fresh install should not sit on the seeded stories until the first
+            // scheduled run comes around.
+            if (storyDao.countStories() <= seedStories().size) {
+                runCatching { refreshNow() }
             }
         }
 
@@ -613,7 +619,32 @@ object NewsRepository {
         }
     }
 
+    /**
+     * Only one fetch runs at a time. Two overlapping fetches used to leave the status stuck
+     * on "Updating" forever, because the slower one wrote its start state after the faster
+     * one had already finished.
+     */
     suspend fun refreshNow() {
+        if (!refreshLock.tryAcquire()) return
+        try {
+            refreshNowLocked()
+        } finally {
+            refreshLock.release()
+            // Whatever happened, the widget must not be left claiming it is still fetching.
+            if (_state.value.runtime.lastFetchStatus == FetchStatus.Fetching) {
+                _state.update { current ->
+                    val runtime = current.runtime.copy(
+                        lastFetchStatus = FetchStatus.Failed,
+                        lastFetchFinishedAt = System.currentTimeMillis(),
+                    )
+                    persistRuntime(runtime)
+                    current.copy(runtime = runtime)
+                }
+            }
+        }
+    }
+
+    private suspend fun refreshNowLocked() {
         if (!_state.value.runtime.runtimeEnabled || !_state.value.runtime.fetchEnabled) {
             _state.update {
                 it.copy(
@@ -651,7 +682,9 @@ object NewsRepository {
                         records = emptyList(),
                     )
                 }
-            }.getOrDefault(FeedFetchOutcome(emptyList(), emptyList()))
+            }
+                .onFailure { android.util.Log.e("AiNewsRefresh", "fetch failed", it) }
+                .getOrDefault(FeedFetchOutcome(emptyList(), emptyList()))
         }
         val fetchedStories = fetchOutcome.stories
         if (fetchOutcome.records.isNotEmpty()) {

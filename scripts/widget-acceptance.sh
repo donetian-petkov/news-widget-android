@@ -3,6 +3,9 @@
 # and checks the things that have broken before. Prints PASS/FAIL per check.
 set -uo pipefail
 
+# Target the emulator by default: a plugged-in phone must not be touched by tests.
+ANDROID_SERIAL="${ANDROID_SERIAL:-$("$HOME/Library/Android/sdk/platform-tools/adb" devices | awk '/emulator-/{print $1; exit}')}"
+export ANDROID_SERIAL
 ADB="${ADB:-$HOME/Library/Android/sdk/platform-tools/adb}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SHOTS="${SHOTS:-/tmp/ai-news-acceptance}"
@@ -30,6 +33,15 @@ shot() { "$ADB" shell screencap -p /sdcard/s.png >/dev/null; "$ADB" pull /sdcard
 
 echo "== Clean install and add the widget"
 SHOT="$SHOTS/00-installed.png" "$HERE/widget-clean-install.sh" >/dev/null 2>&1
+
+echo "== Waiting for the first fetch"
+for _ in $(seq 1 45); do
+  STORIES="$(dump | grep -o 'text="[^"]*stories"' | head -1 | grep -o '[0-9]*' | tail -1)"
+  case "$(dump)" in *Fetching*|*Updating*) sleep 3; continue;; esac
+  [ "${STORIES:-0}" -gt 20 ] 2>/dev/null && break
+  sleep 3
+done
+echo "   stories on the widget: ${STORIES:-unknown}"
 
 XML="$(dump)"
 echo "$XML" | grep -q "All Feeds" && check "widget is on the home screen" 0 || check "widget is on the home screen" 1
@@ -82,6 +94,8 @@ if [ -n "$PP" ]; then
   "$ADB" shell input tap $PP; sleep 5
   AFTER_P="$(first_index)"
   [ "${AFTER_P:-0}" -lt "${BEFORE_P:-0}" ] 2>/dev/null && check "previous page loads" 0 "$BEFORE_P -> $AFTER_P" || check "previous page loads" 1 "$BEFORE_P -> $AFTER_P"
+  FIRST_AFTER_PREV="$(dump | grep -o 'text="[^"]\{12,\}"' | sed -n '2p')"
+  case "$FIRST_AFTER_PREV" in *"Load previous"*|*"ACTUALNO"*|*"."*) check "previous lands at the top of that page" 0;; *) check "previous lands at the top of that page" 1 "$FIRST_AFTER_PREV";; esac
 else
   check "previous control is reachable" 1
 fi
