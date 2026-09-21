@@ -60,8 +60,12 @@ scroll() { # scroll <down|up> [times]  — inside the widget's own list
 shot() { "$ADB" shell screencap -p /sdcard/s.png >/dev/null; "$ADB" pull /sdcard/s.png "$SHOTS/$1.png" >/dev/null 2>&1; }
 images_ok() { # every story on the page has its picture, once the page has settled
   shot "$1"
-  sleep 10
-  "$HERE/widget_images.py" "$ADB"
+  # A slow picture is fine; one that never arrives is not. Keep looking for half a minute.
+  for _ in 1 2 3 4 5; do
+    sleep 6
+    "$HERE/widget_images.py" "$ADB" && return 0
+  done
+  return 1
 }
 reach() { # reach <needle> — scroll the list until the control is on screen
   point "$1" any >/dev/null && return 0
