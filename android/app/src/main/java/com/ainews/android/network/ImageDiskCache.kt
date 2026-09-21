@@ -41,6 +41,19 @@ class ImageDiskCache(
         return BitmapFactory.decodeFile(file.absolutePath, options)
     }
 
+    /** Cached thumbnail if there is one, otherwise downloads it first. */
+    suspend fun loadOrFetchThumbnail(
+        context: Context,
+        imageUrl: String,
+        maxSizePx: Int = THUMBNAIL_MAX_PX,
+    ): Bitmap? = withContext(Dispatchers.IO) {
+        loadCachedThumbnail(context, imageUrl, maxSizePx)
+            ?: run {
+                getOrFetch(context, imageUrl) ?: return@run null
+                loadCachedThumbnail(context, imageUrl, maxSizePx)
+            }
+    }
+
     suspend fun loadBitmap(context: Context, imageUrl: String): Bitmap? =
         withContext(Dispatchers.IO) {
             val file = getOrFetch(context, imageUrl) ?: return@withContext null

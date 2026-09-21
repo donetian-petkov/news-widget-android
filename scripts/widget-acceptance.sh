@@ -86,6 +86,10 @@ EMPTY_ROWS="$(dump | grep -c 'text=""  *content-desc=""' || true)"
 LAST_HEAD="$(dump | grep -o 'text="[^"]\{25,\}"' | tail -1)"
 [ -n "$LAST_HEAD" ] && check "rows still render after growing the list" 0 || check "rows still render after growing the list" 1
 
+echo "== Thumbnails deep in the list"
+shot 02-page-deep
+"$HERE/has_thumbnails.py" "$SHOTS/02-page-deep.png" && check "thumbnails render on a later page" 0 || check "thumbnails render on a later page" 1
+
 echo "== Previous page and reset"
 for _ in $(seq 1 12); do "$ADB" shell input swipe 540 750 540 1150 160; done
 PP="$(find_node 'load previous')"

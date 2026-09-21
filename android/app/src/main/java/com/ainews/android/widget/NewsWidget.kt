@@ -99,6 +99,7 @@ private val layoutModeKey = stringPreferencesKey("layout-mode")
 private val stackIndexKey = intPreferencesKey("stack-index")
 
 private const val WIDGET_IMAGE_LIMIT = 16
+private const val WIDGET_IMAGE_DOWNLOADS = 10
 private const val WIDGET_PAGE_SIZE = 10
 
 /** How many story cards fit in a widget of this height without scrolling. */
@@ -135,12 +136,21 @@ class NewsWidget : GlanceAppWidget() {
                 .drop(page * WIDGET_PAGE_SIZE)
                 .take(WIDGET_PAGE_SIZE)
         }
+        // Thumbnails for the stories actually on screen: whatever is cached, and a few
+        // downloaded on the spot so a page you have just opened is not left bare.
+        var downloads = 0
         val cachedImages = visibleForImages
             .take(WIDGET_IMAGE_LIMIT)
             .mapNotNull { story ->
                 val imageUrl = story.imageUrl ?: return@mapNotNull null
-                val bitmap = imageDiskCache.loadCachedThumbnail(context, imageUrl) ?: return@mapNotNull null
-                story.id to bitmap
+                val cached = imageDiskCache.loadCachedThumbnail(context, imageUrl)
+                val bitmap = cached ?: if (downloads < WIDGET_IMAGE_DOWNLOADS) {
+                    downloads += 1
+                    runCatching { imageDiskCache.loadOrFetchThumbnail(context, imageUrl) }.getOrNull()
+                } else {
+                    null
+                }
+                bitmap?.let { story.id to it }
             }
             .toMap()
 
