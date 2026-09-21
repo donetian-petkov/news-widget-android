@@ -21,6 +21,7 @@ class RuntimePreferences(
                 fetchEnabled = prefs[Keys.fetchEnabled] ?: true,
                 aiEnabled = prefs[Keys.aiEnabled] ?: true,
                 autoPowerOffAt = prefs[Keys.autoPowerOffAt]?.takeIf { it > 0 },
+                aiEnabledUntil = prefs[Keys.aiEnabledUntil]?.takeIf { it > 0 },
                 lastFetchStartedAt = prefs[Keys.lastFetchStartedAt]?.takeIf { it > 0 },
                 lastFetchFinishedAt = prefs[Keys.lastFetchFinishedAt]?.takeIf { it > 0 },
                 lastFetchStatus = prefs[Keys.lastFetchStatus]
@@ -121,6 +122,7 @@ class RuntimePreferences(
             prefs[Keys.fetchEnabled] = runtime.fetchEnabled
             prefs[Keys.aiEnabled] = runtime.aiEnabled
             prefs[Keys.autoPowerOffAt] = runtime.autoPowerOffAt ?: 0
+            prefs[Keys.aiEnabledUntil] = runtime.aiEnabledUntil ?: 0
             prefs[Keys.lastFetchStartedAt] = runtime.lastFetchStartedAt ?: 0
             prefs[Keys.lastFetchFinishedAt] = runtime.lastFetchFinishedAt ?: 0
             prefs[Keys.lastFetchStatus] = runtime.lastFetchStatus.name
@@ -193,6 +195,7 @@ class RuntimePreferences(
         val fetchEnabled = booleanPreferencesKey("fetch_enabled")
         val aiEnabled = booleanPreferencesKey("ai_enabled")
         val autoPowerOffAt = longPreferencesKey("auto_power_off_at")
+        val aiEnabledUntil = longPreferencesKey("ai_enabled_until")
         val lastFetchStartedAt = longPreferencesKey("last_fetch_started_at")
         val lastFetchFinishedAt = longPreferencesKey("last_fetch_finished_at")
         val lastFetchStatus = stringPreferencesKey("last_fetch_status")

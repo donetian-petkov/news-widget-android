@@ -205,6 +205,8 @@ data class RuntimeState(
     val fetchEnabled: Boolean = true,
     val aiEnabled: Boolean = true,
     val autoPowerOffAt: Long? = null,
+    /** AI stops by itself at this moment, so a forgotten switch cannot run up a bill. */
+    val aiEnabledUntil: Long? = null,
     val lastFetchStartedAt: Long? = null,
     val lastFetchFinishedAt: Long? = null,
     val lastFetchStatus: FetchStatus = FetchStatus.Idle,

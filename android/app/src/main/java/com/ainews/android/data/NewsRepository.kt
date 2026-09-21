@@ -10,6 +10,7 @@ import com.ainews.android.network.RssFeedFetcher
 import androidx.glance.appwidget.updateAll
 import com.ainews.android.notifications.AlertNotifier
 import com.ainews.android.widget.NewsWidget
+import com.ainews.android.worker.AiAutoOffWorker
 import com.ainews.android.worker.AutoPowerOffWorker
 import com.ainews.android.worker.MonitorScanWorker
 import com.ainews.android.worker.RefreshAlarmReceiver
@@ -121,6 +122,12 @@ object NewsRepository {
         runtimePreferences = RuntimePreferences(appContext)
         secureProviderKeyStore = SecureProviderKeyStore(appContext)
 
+        // AI may have been left on from a previous run; make sure it is counting down.
+        repositoryScope.launch {
+            kotlinx.coroutines.delay(2_000)
+            armAiSession()
+        }
+
         repositoryScope.launch {
             if (storyDao.countStories() == 0) {
                 storyDao.upsertStories(seedStories().map { it.toEntity() })
@@ -231,15 +238,57 @@ object NewsRepository {
     fun toggleAi() {
         _state.update { current ->
             val enabled = !current.runtime.aiEnabled
+            val stopAt = if (enabled) System.currentTimeMillis() + AI_SESSION_MILLIS else null
             val runtime = current.runtime.copy(
                 aiEnabled = enabled,
+                aiEnabledUntil = stopAt,
                 aiQueueStatus = if (enabled) "Idle" else "Paused",
             )
             persistRuntime(runtime)
+            if (stopAt != null) {
+                AiAutoOffWorker.schedule(appContext, stopAt)
+            } else {
+                AiAutoOffWorker.cancel(appContext)
+            }
             current.copy(
                 runtime = runtime,
-                message = if (enabled) "AI enrichment on" else "AI enrichment off",
+                message = if (enabled) {
+                    "AI enrichment on, off again in ${AI_SESSION_MILLIS / 3_600_000} hours"
+                } else {
+                    "AI enrichment off"
+                },
             )
+        }
+    }
+
+    /** Called by the timer: AI has been on long enough, stop it. */
+    fun stopAiFromTimeout() {
+        _state.update { current ->
+            if (!current.runtime.aiEnabled) return@update current
+            val runtime = current.runtime.copy(
+                aiEnabled = false,
+                aiEnabledUntil = null,
+                aiQueueStatus = "Paused",
+            )
+            persistRuntime(runtime)
+            current.copy(runtime = runtime, message = "AI stopped after its session ran out")
+        }
+    }
+
+    /** Arms the timer when AI is already on from a previous run and nothing is counting down. */
+    private fun armAiSession() {
+        _state.update { current ->
+            if (!current.runtime.aiEnabled) return@update current
+            val existing = current.runtime.aiEnabledUntil
+            if (existing != null && existing > System.currentTimeMillis()) {
+                AiAutoOffWorker.schedule(appContext, existing)
+                return@update current
+            }
+            val stopAt = System.currentTimeMillis() + AI_SESSION_MILLIS
+            val runtime = current.runtime.copy(aiEnabledUntil = stopAt)
+            persistRuntime(runtime)
+            AiAutoOffWorker.schedule(appContext, stopAt)
+            current.copy(runtime = runtime)
         }
     }
 
@@ -308,8 +357,35 @@ object NewsRepository {
 
     fun saveProviderKey(key: String) {
         secureProviderKeyStore.save(key)
-        val nextSettings = _state.value.settings.copy(providerKeySaved = secureProviderKeyStore.hasKey())
+        val saved = secureProviderKeyStore.hasKey()
+        val nextSettings = _state.value.settings.copy(providerKeySaved = saved)
         updateSettings(nextSettings)
+        // Saving used to happen in silence, so there was no way to tell it had worked.
+        _state.update {
+            it.copy(message = if (saved) "Provider key saved" else "That key could not be saved")
+        }
+    }
+
+    /**
+     * Sends one real request to the provider so the reader can see whether the key works,
+     * rather than finding out hours later that no summary ever appeared.
+     */
+    suspend fun testProviderKey(): String = withContext(Dispatchers.IO) {
+        val key = secureProviderKeyStore.load()
+        if (key.isNullOrBlank()) return@withContext "No key saved yet"
+        val story = _state.value.visibleStories.firstOrNull()
+            ?: return@withContext "No story to try it on yet"
+        val result = runCatching {
+            aiEnrichmentClient.runActionWithOpenAi(key, story, StoryAiAction.Summary)
+        }
+        android.util.Log.i("AiNewsKeyTest", "asked the provider, success=${result.isSuccess}")
+        val message = result.fold(
+            onSuccess = { text ->
+                if (text.isBlank()) "The provider answered, but with nothing in it" else "Key works"
+            },
+            onFailure = { failure -> "Key did not work: ${failure.message ?: failure}" },
+        )
+        message
     }
 
     fun clearProviderKey() {
@@ -837,7 +913,9 @@ object NewsRepository {
             .filter { aiEnabledForStory(current.feedSources, it) }
             .filter { story ->
                 when (action) {
-                    StoryAiAction.Summary -> story.summary.isBlank()
+                    // A feed nearly always ships its own description, so "missing" here
+                    // means the story has not been through AI yet, not that it has no text.
+                    StoryAiAction.Summary -> !story.aiFieldsAvailable
                     StoryAiAction.Research -> story.research.isNullOrBlank()
                     StoryAiAction.Translation -> story.translation.isNullOrBlank()
                     StoryAiAction.NeutralTitle ->
@@ -1377,6 +1455,8 @@ object NewsRepository {
             copy(aiBudgetSpentCents = 0, aiBudgetDay = today)
         }
 
+    /** AI runs for six hours at a time unless it is switched on again. */
+    private const val AI_SESSION_MILLIS = 6L * 60 * 60 * 1000
     private const val OPENAI_ENRICHMENT_ESTIMATE_CENTS = 2
     private const val OPENAI_ACTION_ESTIMATE_CENTS = 1
     private const val HISTORY_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000

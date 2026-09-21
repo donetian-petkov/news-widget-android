@@ -47,8 +47,12 @@ class AiEnrichmentClient {
         }
 
         connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        connection.failIfRefused()
         val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-        val outputText = JSONObject(responseText).optString("output_text")
+        val json = JSONObject(responseText)
+        // Without this the usage screen and the widget both kept saying nought tokens.
+        lastTokenUsage = json.readUsage()
+        val outputText = json.optString("output_text").ifBlank { json.firstOutputText() }
         return outputText.toEnrichment(story)
     }
 
@@ -88,15 +92,48 @@ class AiEnrichmentClient {
         }
 
         connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        // A refused request used to surface as nothing but the address, which said nothing
+        // about a wrong key, a model the account cannot use, or a spent quota.
+        connection.failIfRefused()
         val responseText = connection.inputStream.bufferedReader().use { it.readText() }
         val json = JSONObject(responseText)
-        lastTokenUsage = json.optJSONObject("usage")?.let { usage ->
+        lastTokenUsage = json.readUsage()
+        return json.optString("output_text").trim().ifBlank { json.firstOutputText() }
+    }
+
+    /**
+     * A refused request used to surface as nothing but the address, which said nothing about
+     * a wrong key, a model the account cannot use, or a spent quota.
+     */
+    private fun HttpURLConnection.failIfRefused() {
+        val status = responseCode
+        if (status in 200..299) return
+        val detail = errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        val reason = runCatching {
+            JSONObject(detail).optJSONObject("error")?.optString("message")
+        }.getOrNull().orEmpty().ifBlank { detail.take(200) }
+        error("$status $responseMessage${if (reason.isBlank()) "" else ": $reason"}")
+    }
+
+    private fun JSONObject.readUsage(): TokenUsage =
+        optJSONObject("usage")?.let { usage ->
             TokenUsage(
                 inputTokens = usage.optInt("input_tokens"),
                 outputTokens = usage.optInt("output_tokens"),
             )
         } ?: TokenUsage(0, 0)
-        return json.optString("output_text").trim()
+
+    /** The raw API nests the answer; only the SDKs hand back a plain "output_text". */
+    private fun JSONObject.firstOutputText(): String {
+        val output = optJSONArray("output") ?: return ""
+        for (i in 0 until output.length()) {
+            val content = output.optJSONObject(i)?.optJSONArray("content") ?: continue
+            for (j in 0 until content.length()) {
+                val text = content.optJSONObject(j)?.optString("text").orEmpty()
+                if (text.isNotBlank()) return text.trim()
+            }
+        }
+        return ""
     }
 
     /** Token counts reported by the last provider call, so usage can show real numbers. */

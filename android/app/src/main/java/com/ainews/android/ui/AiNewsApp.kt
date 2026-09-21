@@ -273,6 +273,7 @@ fun AiNewsApp() {
                             refreshWidget()
                         },
                         onSaveKey = NewsRepository::saveProviderKey,
+
                         onClearKey = NewsRepository::clearProviderKey,
                     )
 
@@ -1757,6 +1758,7 @@ private fun SettingsScreen(
     val scope = rememberCoroutineScope()
     var draft by remember(settings) { mutableStateOf(settings) }
     var keyDraft by remember { mutableStateOf("") }
+    var keyTestResult by remember { mutableStateOf<String?>(null) }
     var presetNameDraft by remember { mutableStateOf("") }
     var widgetRefreshToken by remember { mutableStateOf(0) }
     val backupExportLauncher = rememberLauncherForActivityResult(
@@ -1848,16 +1850,50 @@ private fun SettingsScreen(
                     label = { Text(if (settings.providerKeySaved) "Provider key saved" else "Provider key") },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // Saving a key used to give no sign it had worked, so here is one, plus a
+                // way to find out whether the provider actually accepts it.
+                Text(
+                    text = if (settings.providerKeySaved) {
+                        "A key is saved. Summaries and research come from ${draft.aiProvider.name}."
+                    } else {
+                        "No key saved. Summaries fall back to the text the feed provides."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (settings.providerKeySaved) {
+                        Color(LocalAppPalette.current.accentCyan)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        onSaveKey(keyDraft)
-                        keyDraft = ""
-                    }) {
+                    OutlinedButton(
+                        onClick = {
+                            onSaveKey(keyDraft)
+                            keyDraft = ""
+                        },
+                        enabled = keyDraft.isNotBlank(),
+                    ) {
                         Text("Save key")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            keyTestResult = "Asking the provider..."
+                            scope.launch { keyTestResult = NewsRepository.testProviderKey() }
+                        },
+                        enabled = settings.providerKeySaved,
+                    ) {
+                        Text("Test key")
                     }
                     OutlinedButton(onClick = onClearKey, enabled = settings.providerKeySaved) {
                         Text("Clear key")
                     }
+                }
+                keyTestResult?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                 }
             }
         }
