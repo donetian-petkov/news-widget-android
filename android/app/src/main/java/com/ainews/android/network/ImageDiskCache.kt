@@ -76,9 +76,16 @@ class ImageDiskCache(
         }
     }
 
-    private fun getOrFetch(context: Context, imageUrl: String): File? {
-        if (!ImageCachePolicy.isSupportedRemoteUrl(imageUrl)) return null
-        val target = File(cacheDir(context), ImageCachePolicy.fileNameForUrl(imageUrl))
+    private fun getOrFetch(context: Context, rawImageUrl: String): File? {
+        if (!ImageCachePolicy.isSupportedRemoteUrl(rawImageUrl)) return null
+        // Android blocks plain HTTP, and several feeds still publish http image links,
+        // so ask the same host over https instead of losing the picture.
+        val imageUrl = if (rawImageUrl.startsWith("http://", ignoreCase = true)) {
+            "https://" + rawImageUrl.removePrefix("http://")
+        } else {
+            rawImageUrl
+        }
+        val target = File(cacheDir(context), ImageCachePolicy.fileNameForUrl(rawImageUrl))
         cachedFile(target)?.let { return it }
 
         val temp = File(target.parentFile, "${target.name}.tmp")
@@ -86,7 +93,14 @@ class ImageDiskCache(
             connectTimeout = 5_000
             readTimeout = 6_000
             requestMethod = "GET"
-            setRequestProperty("User-Agent", "AI-News-Android/0.1")
+            instanceFollowRedirects = true
+            // News CDNs routinely refuse unknown clients, which is why some thumbnails
+            // never arrived while the same URL loads fine in a browser.
+            setRequestProperty("User-Agent", BROWSER_USER_AGENT)
+            setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+            runCatching { URL(imageUrl) }.getOrNull()?.let { url ->
+                setRequestProperty("Referer", "${url.protocol}://${url.host}/")
+            }
         }
 
         return runCatching {
@@ -107,7 +121,8 @@ class ImageDiskCache(
             if (target.exists()) target.delete()
             temp.renameTo(target)
             target
-        }.getOrElse {
+        }.getOrElse { failure ->
+            android.util.Log.w("AiNewsRefresh", "image failed $imageUrl: $failure")
             temp.delete()
             target.takeIf { existing -> existing.exists() }
         }
@@ -130,6 +145,9 @@ class ImageDiskCache(
 
     companion object {
         const val CACHE_DIR_NAME = "story-images"
+        const val BROWSER_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 14; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Chrome/126.0.0.0 Mobile Safari/537.36"
         const val PREFETCH_LIMIT = 60
         const val PREFETCH_PARALLELISM = 6
         const val THUMBNAIL_MAX_PX = 88

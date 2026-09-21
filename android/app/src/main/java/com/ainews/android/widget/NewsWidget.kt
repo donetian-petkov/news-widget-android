@@ -655,7 +655,7 @@ private fun WidgetStoryRow(
                 )
                 .padding(metrics.cardPadding),
         ) {
-            if (thumbnail == null) {
+            if (thumbnail == null && story.imageUrl == null) {
                 StoryTextBlock(
                     story = story,
                     widgetId = widgetId,
@@ -667,14 +667,35 @@ private fun WidgetStoryRow(
                 )
             } else {
                 Row(verticalAlignment = Alignment.Top) {
-                    Image(
-                        provider = ImageProvider(thumbnail),
-                        contentDescription = story.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = GlanceModifier
-                            .size(metrics.thumbnailSize)
-                            .cornerRadius(6.dp),
-                    )
+                    if (thumbnail != null) {
+                        Image(
+                            provider = ImageProvider(thumbnail),
+                            contentDescription = story.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = GlanceModifier
+                                .size(metrics.thumbnailSize)
+                                .cornerRadius(6.dp),
+                        )
+                    } else {
+                        // Keeps every card the same shape while an image is still coming.
+                        Box(
+                            modifier = GlanceModifier
+                                .size(metrics.thumbnailSize)
+                                .background(ColorProvider(palette.card))
+                                .cornerRadius(6.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = story.source.take(1).uppercase(Locale.getDefault()),
+                                style = TextStyle(
+                                    color = ColorProvider(palette.muted),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = type.title,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
+                    }
                     Spacer(GlanceModifier.width(metrics.thumbnailGap))
                     StoryTextBlock(
                         story = story,
