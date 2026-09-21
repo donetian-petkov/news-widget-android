@@ -810,11 +810,20 @@ object NewsRepository {
 
     fun markAllRead() {
         val readAt = System.currentTimeMillis()
-        repositoryScope.launch { storyDao.markAllRead(readAt) }
+        repositoryScope.launch {
+            storyDao.markAllRead(readAt)
+            // Reading everything also clears the NEW flags, otherwise the badges stay up and
+            // the button looks like it did nothing.
+            storyDao.clearNewMarkers()
+        }
         _state.update { current ->
             current.copy(
                 stories = current.stories.map {
-                    if (it.isHidden || it.isRead) it else it.copy(isRead = true, readAt = readAt)
+                    when {
+                        it.isHidden -> it
+                        it.isRead -> it.copy(isNew = false)
+                        else -> it.copy(isRead = true, readAt = readAt, isNew = false)
+                    }
                 },
                 message = "All stories marked read",
             )

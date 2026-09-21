@@ -103,6 +103,7 @@ private val expandedStoryKey = stringPreferencesKey("expanded-story")
 private val storyCountKey = intPreferencesKey("story-count")
 private val layoutModeKey = stringPreferencesKey("layout-mode")
 private val stackIndexKey = intPreferencesKey("stack-index")
+private val revisionKey = longPreferencesKey("revision")
 
 private const val WIDGET_IMAGE_TIMEOUT_MILLIS = 9_000L
 private const val WIDGET_PAGE_SIZE = 10
@@ -132,7 +133,12 @@ class NewsWidget : GlanceAppWidget() {
         val storedState = runCatching {
             getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
         }.getOrNull()
-        val visibleForImages = run {
+        // While the list is being clamped back to the top, draw immediately: waiting for
+        // images here would push the loading frame past its own deadline, the frame would
+        // never reach the screen, and the story list would come back still scrolled to
+        // wherever the reader left it.
+        val settlingNow = System.currentTimeMillis() < (storedState?.get(settlingUntilKey) ?: 0L)
+        val visibleForImages = if (settlingNow) emptyList() else run {
             val state = NewsRepository.state.value
             val page = storedState?.get(pageIndexKey) ?: 0
             val unreadOnlyNow = storedState?.get(unreadOnlyKey) ?: false
@@ -161,10 +167,19 @@ class NewsWidget : GlanceAppWidget() {
             // the background and the widget is drawn again when they land.
             android.util.Log.d("AiNewsWidget", "still fetching ${missing.size} thumbnails")
             CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                missing.forEach { (_, url) ->
-                    runCatching { imageDiskCache.loadOrFetchThumbnail(context, url) }
+                var lastDraw = 0L
+                missing.forEachIndexed { index, (_, url) ->
+                    val arrived = runCatching {
+                        imageDiskCache.loadOrFetchThumbnail(context, url)
+                    }.getOrNull() != null
+                    val now = System.currentTimeMillis()
+                    // Redraw as pictures land, but not more than once a second, and
+                    // always once at the end so the last one is never left out.
+                    if (arrived && (now - lastDraw > 1_000L || index == missing.lastIndex)) {
+                        lastDraw = now
+                        NewsWidget().update(context, id)
+                    }
                 }
-                NewsWidget().update(context, id)
             }
         }
         android.util.Log.d(
@@ -781,7 +796,7 @@ private fun WidgetStoryRow(
                             actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                         ),
                         backgroundRes = buttonBackground,
-                        tint = if ("TogglePinStoryAction" == "TogglePinStoryAction" && story.isPinned) palette.pinText else palette.header,
+                        tint = if (story.isPinned) palette.pinText else palette.header,
                     )
                     WidgetIconButton(
                         iconRes = R.drawable.ic_hide,
@@ -790,7 +805,7 @@ private fun WidgetStoryRow(
                             actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                         ),
                         backgroundRes = buttonBackground,
-                        tint = if ("HideStoryAction" == "TogglePinStoryAction" && story.isPinned) palette.pinText else palette.header,
+                        tint = palette.header,
                     )
                     if (showExtraActions) {
                         WidgetIconButton(
@@ -1153,7 +1168,7 @@ private suspend fun turnPage(context: Context, appWidgetId: Int, glanceId: Glanc
     settle(context, appWidgetId, glanceId)
 }
 
-private const val SETTLE_MILLIS = 450L
+private const val SETTLE_MILLIS = 700L
 
 private suspend fun settle(context: Context, appWidgetId: Int, glanceId: GlanceId) {
     delay(SETTLE_MILLIS)
@@ -1490,8 +1505,16 @@ private suspend fun editWidgetState(
     NewsWidget().update(context, target)
 }
 
+/**
+ * Redraws the widget after something outside its own state changed - a story saved, hidden,
+ * pinned or marked read. The counter matters: writing the same state back changes nothing on
+ * disk, Glance sees no change and never recomposes, so the widget would keep showing the story
+ * the reader just hid.
+ */
 private suspend fun refreshWidget(context: Context, appWidgetId: Int, glanceId: GlanceId) {
-    editWidgetState(context, appWidgetId, glanceId) { }
+    editWidgetState(context, appWidgetId, glanceId) { prefs ->
+        prefs[revisionKey] = (prefs[revisionKey] ?: 0L) + 1
+    }
 }
 
 /** List-row actions cannot resolve their widget from the glance id, so it travels with them. */

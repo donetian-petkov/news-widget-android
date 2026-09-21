@@ -2,6 +2,7 @@ package com.ainews.android.ui
 
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -84,6 +85,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import android.os.Build
+import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
@@ -1076,11 +1078,29 @@ private fun AppDrawer(
             )
 
             DrawerSection("App")
+            val pinContext = LocalContext.current
+            NavigationDrawerItem(
+                label = { Text("Add the widget to your home screen") },
+                selected = false,
+                onClick = { requestWidgetPin(pinContext) },
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+            )
             if (state.settings.aiConfigured) {
                 DrawerDestination("AI usage", AppScreen.Usage, current, onNavigate)
             }
             DrawerDestination("Settings", AppScreen.Settings, current, onNavigate)
         }
+    }
+}
+
+/** Asks the launcher to drop the news widget on the home screen. */
+private fun requestWidgetPin(context: Context) {
+    val manager = AppWidgetManager.getInstance(context)
+    val provider = ComponentName(context, NewsWidgetReceiver::class.java)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && manager.isRequestPinAppWidgetSupported) {
+        manager.requestPinAppWidget(provider, null, null)
+    } else {
+        Toast.makeText(context, "Add the widget from your home screen instead", Toast.LENGTH_LONG).show()
     }
 }
 

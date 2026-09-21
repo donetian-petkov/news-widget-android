@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Clean-room widget check: wipes the app, installs the current debug build, then
-# adds the widget to the home screen the way a person would and screenshots it.
-# Elements are located by name from a UI dump, so it survives layout changes.
+# asks the launcher to pin the widget to the home screen and screenshots it.
 set -euo pipefail
 
 # Target the emulator by default: a plugged-in phone must not be touched by tests.
@@ -34,37 +33,24 @@ say "First run"
 "$ADB" shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 || true
 "$ADB" shell am start -n "$PKG/.MainActivity" >/dev/null
 sleep 15
-"$ADB" shell input keyevent KEYCODE_HOME
-sleep 3
 
-say "Opening the widget picker"
-"$ADB" shell input swipe 540 1000 540 1000 1200
-sleep 3
-tap_named "widgets" text "the Widgets menu entry"
+say "Asking the launcher for the widget"
+tap_named "open navigation" any "the menu button" || "$ADB" shell input tap 60 200
+sleep 2
+for _ in 1 2 3 4 5 6; do
+  "$HERE/ui_find.py" "$ADB" "add the widget" any >/dev/null && break
+  "$ADB" shell input swipe 300 1600 300 1000 200
+  sleep 1
+done
+tap_named "add the widget" any "the add-widget entry"
 sleep 4
-tap_named "ai news" any "the AI News group"
-sleep 3
-
-say "Dragging the widget onto the home screen"
-preview="$("$HERE/ui_find.py" "$ADB" "ai news widget" any || "$HERE/ui_find.py" "$ADB" "4 × 3" any)"
-read -r px py <<<"$preview"
-"$ADB" shell "input motionevent DOWN $px $py; sleep 2; \
-  input motionevent MOVE $((px + 5)) $((py - 10)); sleep 0.4; \
-  input motionevent MOVE $((px + 10)) $((py - 60)); sleep 0.4; \
-  input motionevent MOVE $((px + 10)) $((py - 120)); sleep 0.4; \
-  input motionevent MOVE $((px + 5)) $((py - 180)); sleep 0.4; \
-  input motionevent MOVE $px $((py - 240)); sleep 1; \
-  input motionevent UP $px $((py - 240))"
+tap_named "add" any "the launcher's confirm button"
 sleep 5
-
-say "Finishing setup"
-tap_named "use current settings" any "the setup screen" || true
-sleep 6
 "$ADB" shell input keyevent KEYCODE_HOME
-sleep 6
+sleep 8
 
 say "Widget instances"
-"$ADB" shell dumpsys appwidget | grep -c "hostCategory" || true
+"$ADB" shell dumpsys appwidget | grep -c "com.ainews.android/com.ainews.android.widget.NewsWidgetReceiver" || true
 
 say "Errors"
 "$ADB" logcat -d | grep -iE "GlanceAppWidget.*Error|FATAL EXCEPTION" | tail -5 || true
