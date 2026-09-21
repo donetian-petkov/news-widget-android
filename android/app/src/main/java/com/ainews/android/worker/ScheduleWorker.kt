@@ -12,6 +12,7 @@ import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.NewsSchedule
 import com.ainews.android.data.ScheduleKind
 import com.ainews.android.widget.NewsWidget
+import com.ainews.android.widget.redrawAllWidgets
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -29,7 +30,7 @@ class ScheduleWorker(
         val scheduleId = inputData.getString(KEY_SCHEDULE_ID) ?: return Result.success()
         NewsRepository.initialize(applicationContext)
         NewsRepository.runScheduleNow(scheduleId)
-        NewsWidget().updateAll(applicationContext)
+        redrawAllWidgets(applicationContext)
         return Result.success()
     }
 

@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.widget.NewsWidget
+import com.ainews.android.widget.redrawAllWidgets
 
 class AiEnrichmentWorker(
     appContext: Context,
@@ -17,7 +18,7 @@ class AiEnrichmentWorker(
     override suspend fun doWork(): Result {
         NewsRepository.initialize(applicationContext)
         NewsRepository.enrichVisibleStories()
-        NewsWidget().updateAll(applicationContext)
+        redrawAllWidgets(applicationContext)
         return Result.success()
     }
 

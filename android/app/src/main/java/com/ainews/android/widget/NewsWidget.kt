@@ -16,6 +16,12 @@ import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.clickable
+import android.graphics.Bitmap
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
@@ -87,6 +93,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.LocalDateTime
@@ -107,6 +114,7 @@ private val revisionKey = longPreferencesKey("revision")
 
 private const val WIDGET_IMAGE_TIMEOUT_MILLIS = 9_000L
 private const val WIDGET_PAGE_SIZE = 10
+private const val STORY_LOAD_TIMEOUT_MILLIS = 5_000L
 
 /** How many story cards fit in a widget of this height without scrolling. */
 internal fun fittingRowCount(heightDp: Float, densityMode: WidgetDensityMode, fontScale: Float): Int {
@@ -133,61 +141,13 @@ class NewsWidget : GlanceAppWidget() {
         val storedState = runCatching {
             getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
         }.getOrNull()
-        // While the list is being clamped back to the top, draw immediately: waiting for
-        // images here would push the loading frame past its own deadline, the frame would
-        // never reach the screen, and the story list would come back still scrolled to
-        // wherever the reader left it.
-        val settlingNow = System.currentTimeMillis() < (storedState?.get(settlingUntilKey) ?: 0L)
-        val visibleForImages = if (settlingNow) emptyList() else run {
-            val state = NewsRepository.state.value
-            val page = storedState?.get(pageIndexKey) ?: 0
-            val unreadOnlyNow = storedState?.get(unreadOnlyKey) ?: false
-            state.prioritizedStories
-                .filter { !unreadOnlyNow || !it.isRead }
-                .drop(page * WIDGET_PAGE_SIZE)
-                .take(WIDGET_PAGE_SIZE)
+        // The widget is often drawn in a process that has only just started, before the
+        // stories have been read back from the database. Without waiting, the picture pass
+        // below finds nothing to fetch and every card keeps its grey placeholder for good.
+        NewsRepository.initialize(context)
+        withTimeoutOrNull(STORY_LOAD_TIMEOUT_MILLIS) {
+            NewsRepository.state.first { it.stories.isNotEmpty() }
         }
-        // Only the stories about to be drawn get an image, fetched together when the widget
-        // updates - which is exactly on refresh, load more and load previous.
-        val wanted = visibleForImages.mapNotNull { story -> story.imageUrl?.let { story.id to it } }
-        val cachedImages = coroutineScope {
-            wanted.map { (id, url) ->
-                async(Dispatchers.IO) {
-                    val bitmap = imageDiskCache.loadCachedThumbnail(context, url)
-                        ?: withTimeoutOrNull(WIDGET_IMAGE_TIMEOUT_MILLIS) {
-                            runCatching { imageDiskCache.loadOrFetchThumbnail(context, url) }.getOrNull()
-                        }
-                    bitmap?.let { id to it }
-                }
-            }.awaitAll().filterNotNull().toMap()
-        }
-        val missing = wanted.filterNot { (id, _) -> cachedImages.containsKey(id) }
-        if (missing.isNotEmpty()) {
-            // A slow image must not hold up the whole widget, so the stragglers finish in
-            // the background and the widget is drawn again when they land.
-            android.util.Log.d("AiNewsWidget", "still fetching ${missing.size} thumbnails")
-            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                var lastDraw = 0L
-                missing.forEachIndexed { index, (_, url) ->
-                    val arrived = runCatching {
-                        imageDiskCache.loadOrFetchThumbnail(context, url)
-                    }.getOrNull() != null
-                    val now = System.currentTimeMillis()
-                    // Redraw as pictures land, but not more than once a second, and
-                    // always once at the end so the last one is never left out.
-                    if (arrived && (now - lastDraw > 1_000L || index == missing.lastIndex)) {
-                        lastDraw = now
-                        NewsWidget().update(context, id)
-                    }
-                }
-            }
-        }
-        android.util.Log.d(
-            "AiNewsWidget",
-            "page images: ${visibleForImages.count { it.imageUrl != null }} of " +
-                "${visibleForImages.size} stories have urls, ${cachedImages.size} drawn",
-        )
-
         provideContent {
             val widgetState = currentState<Preferences>()
             val state = NewsRepository.state.value
@@ -260,6 +220,45 @@ class NewsWidget : GlanceAppWidget() {
             } else {
                 allWidgetStories.drop(pageIndex * pageSize).take(storyLimit)
             }
+            // The pictures are loaded here, while the widget is being drawn, so that turning
+            // the page fetches the new page's pictures. Everything outside this block runs
+            // only once, when Glance starts a session for the widget, which is why pictures
+            // used to stop arriving after the first page.
+            val wanted = stories.mapNotNull { story -> story.imageUrl?.let { story.id to it } }
+            var images by remember { mutableStateOf(emptyMap<String, Bitmap>()) }
+            LaunchedEffect(wanted.joinToString(",") { it.first }) {
+                if (wanted.isEmpty()) {
+                    images = emptyMap()
+                    return@LaunchedEffect
+                }
+                // Whatever is already on disk goes up straight away.
+                val cached = withContext(Dispatchers.IO) {
+                    wanted.mapNotNull { (storyId, url) ->
+                        imageDiskCache.loadCachedThumbnail(context, url)?.let { storyId to it }
+                    }.toMap()
+                }
+                images = cached
+                val arrived = cached.toMutableMap()
+                wanted.filterNot { (storyId, _) -> cached.containsKey(storyId) }
+                    .forEach { (storyId, url) ->
+                        val bitmap = withContext(Dispatchers.IO) {
+                            withTimeoutOrNull(WIDGET_IMAGE_TIMEOUT_MILLIS) {
+                                runCatching {
+                                    imageDiskCache.loadOrFetchThumbnail(context, url)
+                                }.getOrNull()
+                            }
+                        }
+                        if (bitmap != null) {
+                            // Each picture appears as it lands rather than all at the end.
+                            arrived[storyId] = bitmap
+                            images = arrived.toMap()
+                        }
+                    }
+                android.util.Log.d(
+                    "AiNewsWidget",
+                    "page ${pageIndex + 1}: ${arrived.size} of ${wanted.size} pictures drawn",
+                )
+            }
             val systemInDarkMode = (
                 context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
                 ) == Configuration.UI_MODE_NIGHT_YES
@@ -330,6 +329,7 @@ class NewsWidget : GlanceAppWidget() {
                                     },
                                     showClock = showStatusText,
                                     tokensToday = tokensToday,
+                                    lastFetchAt = state.runtime.lastFetchFinishedAt,
                                 ),
                                 style = TextStyle(
                                     color = ColorProvider(if (healthy) palette.muted else palette.warningText),
@@ -514,7 +514,7 @@ class NewsWidget : GlanceAppWidget() {
                             showDivider = showDivider,
                             expanded = expandedStoryId.orEmpty().isNotEmpty() && story.id == expandedStoryId,
                             isAlert = state.alertMatches.any { it.storyId == story.id },
-                            thumbnail = cachedImages[story.id]
+                            thumbnail = images[story.id]
                                 .takeIf { size.width >= 220.dp && size.height >= 150.dp },
                             actionStyle = when {
                                 !showActions -> WidgetActionStyle.None
@@ -1122,13 +1122,22 @@ private fun widgetMetaLine(
     status: FetchStatus,
     showClock: Boolean,
     tokensToday: Int,
+    lastFetchAt: Long?,
 ): String {
+    // The time shown is when the stories last came in, not when the widget happened to be
+    // drawn. A failed attempt on top of stories that are already here says so quietly
+    // instead of replacing everything with "Update failed", which looked like the widget
+    // had nothing to show.
+    val fetchedAt = lastFetchAt?.let { formatWidgetClock(it) }
     val state = when {
         !runtimeEnabled -> "Paused"
         !fetchEnabled -> "Fetch off"
         status == FetchStatus.Fetching -> "Updating"
+        status == FetchStatus.Failed && fetchedAt != null && storyCount > 0 ->
+            "Updated $fetchedAt · couldn't refresh"
         status == FetchStatus.Failed -> "Update failed"
-        else -> "Updated ${formatWidgetClock()}"
+        fetchedAt != null -> "Updated $fetchedAt"
+        else -> "Updated ${formatWidgetClock(System.currentTimeMillis())}"
     }
     val stories = if (storyCount == 1) "1 story" else "$storyCount stories"
     val mode = if (layoutMode == WidgetLayoutMode.Column) "" else " · one at a time"
@@ -1151,7 +1160,7 @@ class ToggleRuntimeAction : ActionCallback {
     ) {
         NewsRepository.toggleRuntime()
         refreshWidget(context, parameters.widgetId(context, glanceId), glanceId)
-        NewsWidget().updateAll(context)
+        redrawAllWidgets(context)
     }
 }
 
@@ -1277,7 +1286,7 @@ class MarkAllReadAction : ActionCallback {
     ) {
         NewsRepository.markAllRead()
         refreshWidget(context, parameters.widgetId(context, glanceId), glanceId)
-        NewsWidget().updateAll(context)
+        redrawAllWidgets(context)
     }
 }
 
@@ -1289,7 +1298,7 @@ class ToggleSaveStoryAction : ActionCallback {
     ) {
         parameters[storyIdKey]?.let(NewsRepository::toggleSaved)
         refreshWidget(context, parameters.widgetId(context, glanceId), glanceId)
-        NewsWidget().updateAll(context)
+        redrawAllWidgets(context)
     }
 }
 
@@ -1333,10 +1342,10 @@ class RefreshAction : ActionCallback {
             val refresh = launch { NewsRepository.refreshNow() }
             // Paint the spinner straight away instead of only showing the result.
             delay(150)
-            NewsWidget().updateAll(context)
+            redrawAllWidgets(context)
             refresh.join()
         }
-        NewsWidget().updateAll(context)
+        redrawAllWidgets(context)
     }
 }
 
@@ -1420,7 +1429,7 @@ class HideStoryAction : ActionCallback {
     ) {
         parameters[storyIdKey]?.let(NewsRepository::hideStory)
         refreshWidget(context, parameters.widgetId(context, glanceId), glanceId)
-        NewsWidget().updateAll(context)
+        redrawAllWidgets(context)
     }
 }
 
@@ -1432,7 +1441,7 @@ class TogglePinStoryAction : ActionCallback {
     ) {
         parameters[storyIdKey]?.let(NewsRepository::togglePinned)
         refreshWidget(context, parameters.widgetId(context, glanceId), glanceId)
-        NewsWidget().updateAll(context)
+        redrawAllWidgets(context)
     }
 }
 
@@ -1465,7 +1474,7 @@ class OpenStoryAction : ActionCallback {
         }
         context.startActivity(intent)
         refreshWidget(context, parameters.widgetId(context, glanceId), glanceId)
-        NewsWidget().updateAll(context)
+        redrawAllWidgets(context)
     }
 }
 
@@ -1529,6 +1538,24 @@ private suspend fun refreshWidget(context: Context, appWidgetId: Int, glanceId: 
     }
 }
 
+/**
+ * Redraws every widget on the home screen. Use this instead of `updateAll`, which asks Glance
+ * to redraw without anything having changed - and Glance then often does nothing, which is how
+ * the widget ended up stuck on a spinner after a fetch had long since finished.
+ */
+suspend fun redrawAllWidgets(context: Context) {
+    val manager = GlanceAppWidgetManager(context)
+    val ids = runCatching { manager.getGlanceIds(NewsWidget::class.java) }.getOrDefault(emptyList())
+    ids.forEach { glanceId ->
+        runCatching {
+            updateAppWidgetState(context, glanceId) { prefs ->
+                prefs[revisionKey] = (prefs[revisionKey] ?: 0L) + 1
+            }
+            NewsWidget().update(context, glanceId)
+        }
+    }
+}
+
 /** List-row actions cannot resolve their widget from the glance id, so it travels with them. */
 private fun ActionParameters.widgetId(context: Context, glanceId: GlanceId): Int =
     this[appWidgetIdKey] ?: GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
@@ -1548,8 +1575,9 @@ private fun NewsStory.widgetSummary(): String =
         ?: translation?.takeIf { it.isNotBlank() }
         ?: summary
 
-private fun formatWidgetClock(): String =
-    LocalDateTime.now()
+private fun formatWidgetClock(epochMillis: Long): String =
+    java.time.Instant.ofEpochMilli(epochMillis)
+        .atZone(java.time.ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault()))
 
 private fun formatWidgetTime(epochMillis: Long): String =

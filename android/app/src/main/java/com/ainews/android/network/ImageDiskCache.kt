@@ -55,7 +55,11 @@ class ImageDiskCache(
         loadCachedThumbnail(context, imageUrl, maxSizePx)
             ?: run {
                 getOrFetch(context, imageUrl) ?: return@run null
-                loadCachedThumbnail(context, imageUrl, maxSizePx)
+                loadCachedThumbnail(context, imageUrl, maxSizePx).also {
+                    if (it == null) {
+                        android.util.Log.w("AiNewsImage", "downloaded but undecodable $imageUrl")
+                    }
+                }
             }
     }
 
@@ -77,7 +81,10 @@ class ImageDiskCache(
     }
 
     private fun getOrFetch(context: Context, rawImageUrl: String): File? {
-        if (!ImageCachePolicy.isSupportedRemoteUrl(rawImageUrl)) return null
+        if (!ImageCachePolicy.isSupportedRemoteUrl(rawImageUrl)) {
+            android.util.Log.w("AiNewsImage", "unusable image address $rawImageUrl")
+            return null
+        }
         // Android blocks plain HTTP, and several feeds still publish http image links,
         // so ask the same host over https instead of losing the picture.
         val imageUrl = if (rawImageUrl.startsWith("http://", ignoreCase = true)) {
@@ -88,7 +95,11 @@ class ImageDiskCache(
         val target = File(cacheDir(context), ImageCachePolicy.fileNameForUrl(rawImageUrl))
         cachedFile(target)?.let { return it }
 
-        val temp = File(target.parentFile, "${target.name}.tmp")
+        // A name of its own per download. Two widgets asking for the same picture used to
+        // write into one temp file: the first one renamed it away and the second was left
+        // writing into nothing, so the card kept its grey tile even though the server had
+        // sent the whole image.
+        val temp = File(target.parentFile, "${target.name}.${java.util.UUID.randomUUID()}.tmp")
         val connection = (URL(imageUrl).openConnection() as HttpURLConnection).apply {
             connectTimeout = 5_000
             readTimeout = 6_000
@@ -117,12 +128,21 @@ class ImageDiskCache(
                     }
                 }
             }
-            if (temp.length() == 0L) return@runCatching null
+            if (temp.length() == 0L) {
+                temp.delete()
+                android.util.Log.w(
+                    "AiNewsImage",
+                    "empty download $imageUrl (http ${connection.responseCode}, " +
+                        "type ${connection.contentType}, length ${connection.contentLength})",
+                )
+                // Another download of the same picture may have finished in the meantime.
+                return@runCatching cachedFile(target)
+            }
             if (target.exists()) target.delete()
             temp.renameTo(target)
             target
         }.getOrElse { failure ->
-            android.util.Log.w("AiNewsRefresh", "image failed $imageUrl: $failure")
+            android.util.Log.w("AiNewsImage", "download failed $imageUrl: $failure")
             temp.delete()
             target.takeIf { existing -> existing.exists() }
         }
@@ -151,7 +171,10 @@ class ImageDiskCache(
         const val PREFETCH_LIMIT = 60
         const val PREFETCH_PARALLELISM = 6
         const val THUMBNAIL_MAX_PX = 88
-        const val DEFAULT_MAX_BYTES = 5L * 1024L * 1024L
+        // News sites publish full-size photographs. We only keep an 88px thumbnail, but the
+        // download still has to get through the original, and at five megabytes plenty of
+        // them were abandoned halfway and the card kept its grey tile.
+        const val DEFAULT_MAX_BYTES = 25L * 1024L * 1024L
         const val DEFAULT_MAX_AGE_MILLIS = 7L * 24L * 60L * 60L * 1000L
     }
 }

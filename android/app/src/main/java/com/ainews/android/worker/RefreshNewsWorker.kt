@@ -11,6 +11,7 @@ import androidx.work.WorkerParameters
 import androidx.glance.appwidget.updateAll
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.widget.NewsWidget
+import com.ainews.android.widget.redrawAllWidgets
 import java.util.concurrent.TimeUnit
 
 class RefreshNewsWorker(
@@ -21,7 +22,7 @@ class RefreshNewsWorker(
         NewsRepository.initialize(applicationContext)
         NewsRepository.refreshNow()
         // Without this the widget kept showing whatever it drew when the app was last open.
-        NewsWidget().updateAll(applicationContext)
+        redrawAllWidgets(applicationContext)
         return Result.success()
     }
 

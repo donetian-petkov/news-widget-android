@@ -10,6 +10,7 @@ import androidx.work.WorkerParameters
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.notifications.AlertNotifier
 import com.ainews.android.widget.NewsWidget
+import com.ainews.android.widget.redrawAllWidgets
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -26,7 +27,7 @@ class MonitorScanWorker(
             matches = NewsRepository.state.value.alertMatches,
             stories = NewsRepository.state.value.stories,
         )
-        NewsWidget().updateAll(applicationContext)
+        redrawAllWidgets(applicationContext)
         return Result.success()
     }
 

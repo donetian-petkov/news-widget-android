@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.widget.NewsWidget
+import com.ainews.android.widget.redrawAllWidgets
 import java.util.concurrent.TimeUnit
 
 class AutoPowerOffWorker(
@@ -18,7 +19,7 @@ class AutoPowerOffWorker(
     override suspend fun doWork(): Result {
         NewsRepository.initialize(applicationContext)
         NewsRepository.powerOffFromTimeout()
-        NewsWidget().updateAll(applicationContext)
+        redrawAllWidgets(applicationContext)
         return Result.success()
     }
 

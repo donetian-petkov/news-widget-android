@@ -130,6 +130,7 @@ import com.ainews.android.data.effectiveWidgetFeedSourceIds
 import com.ainews.android.data.setupChecklistItems
 import com.ainews.android.network.ImageDiskCache
 import com.ainews.android.widget.NewsWidget
+import com.ainews.android.widget.redrawAllWidgets
 import com.ainews.android.widget.NewsWidgetReceiver
 import com.ainews.android.widget.WidgetInstancePreferences
 import kotlinx.coroutines.Dispatchers
@@ -203,7 +204,7 @@ fun AiNewsApp() {
     }
 
     fun refreshWidget() {
-        scope.launch { NewsWidget().updateAll(context) }
+        scope.launch { redrawAllWidgets(context) }
     }
 
     val density = LocalDensity.current
@@ -256,7 +257,7 @@ fun AiNewsApp() {
                     onRunAction = { action ->
                         scope.launch {
                             NewsRepository.runStoryAction(selectedStory.id, action)
-                            NewsWidget().updateAll(context)
+                            redrawAllWidgets(context)
                         }
                     },
                     onShare = { shareStory(context, selectedStory) },
@@ -321,7 +322,7 @@ fun AiNewsApp() {
                         onRefresh = {
                             scope.launch {
                                 NewsRepository.refreshNow()
-                                NewsWidget().updateAll(context)
+                                redrawAllWidgets(context)
                             }
                         },
                     )
@@ -376,13 +377,13 @@ fun AiNewsApp() {
                         onRegenerate = {
                             scope.launch {
                                 NewsRepository.regenerateMissingAi()
-                                NewsWidget().updateAll(context)
+                                redrawAllWidgets(context)
                             }
                         },
                         onRegenerateKind = { action ->
                             scope.launch {
                                 NewsRepository.regenerateMissing(action)
-                                NewsWidget().updateAll(context)
+                                redrawAllWidgets(context)
                             }
                         },
                     )
@@ -403,7 +404,7 @@ fun AiNewsApp() {
                         onRunSchedule = {
                             scope.launch {
                                 NewsRepository.runScheduleNow(it)
-                                NewsWidget().updateAll(context)
+                                redrawAllWidgets(context)
                             }
                         },
                     )
@@ -413,7 +414,7 @@ fun AiNewsApp() {
                         onRefresh = {
                             scope.launch {
                                 NewsRepository.refreshNow()
-                                NewsWidget().updateAll(context)
+                                redrawAllWidgets(context)
                             }
                         },
                         onPower = {
@@ -439,7 +440,7 @@ fun AiNewsApp() {
                         onEnrich = {
                             scope.launch {
                                 NewsRepository.enrichVisibleStories()
-                                NewsWidget().updateAll(context)
+                                redrawAllWidgets(context)
                             }
                         },
                         onSelectTopic = NewsRepository::selectTopic,

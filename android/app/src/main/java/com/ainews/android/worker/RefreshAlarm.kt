@@ -9,6 +9,7 @@ import android.os.SystemClock
 import androidx.glance.appwidget.updateAll
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.widget.NewsWidget
+import com.ainews.android.widget.redrawAllWidgets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,7 +31,7 @@ class RefreshAlarmReceiver : BroadcastReceiver() {
                 if (!online) return@launch
                 NewsRepository.initialize(appContext)
                 NewsRepository.refreshNow()
-                NewsWidget().updateAll(appContext)
+                redrawAllWidgets(appContext)
             } finally {
                 pending.finish()
             }

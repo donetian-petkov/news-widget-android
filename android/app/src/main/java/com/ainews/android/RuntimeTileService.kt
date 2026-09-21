@@ -5,6 +5,7 @@ import android.service.quicksettings.TileService
 import androidx.glance.appwidget.updateAll
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.widget.NewsWidget
+import com.ainews.android.widget.redrawAllWidgets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,7 +26,7 @@ class RuntimeTileService : TileService() {
         NewsRepository.initialize(applicationContext)
         NewsRepository.toggleRuntime()
         render()
-        scope.launch { NewsWidget().updateAll(applicationContext) }
+        scope.launch { redrawAllWidgets(applicationContext) }
     }
 
     private fun render() {
