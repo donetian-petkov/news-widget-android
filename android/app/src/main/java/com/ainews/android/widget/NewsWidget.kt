@@ -30,6 +30,7 @@ import androidx.glance.currentState
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
@@ -91,7 +92,7 @@ import java.util.Locale
 // Per-instance view state lives in Glance's own state: Glance does not watch
 // SharedPreferences, so writes there never triggered a recomposition.
 private val pageIndexKey = intPreferencesKey("page-index")
-private val settlingKey = booleanPreferencesKey("settling")
+private val settlingUntilKey = longPreferencesKey("settling-until")
 private val unreadOnlyKey = booleanPreferencesKey("unread-only")
 private val expandedStoryKey = stringPreferencesKey("expanded-story")
 private val storyCountKey = intPreferencesKey("story-count")
@@ -153,6 +154,11 @@ class NewsWidget : GlanceAppWidget() {
                 bitmap?.let { story.id to it }
             }
             .toMap()
+        android.util.Log.d(
+            "AiNewsWidget",
+            "page images: ${visibleForImages.count { it.imageUrl != null }} of " +
+                "${visibleForImages.size} stories have urls, ${cachedImages.size} drawn",
+        )
 
         provideContent {
             val widgetState = currentState<Preferences>()
@@ -208,7 +214,9 @@ class NewsWidget : GlanceAppWidget() {
             val hasNext = pageIndex < pageCount - 1
             // Rendering one row first clamps the list back to the top; the full page follows
             // in the same update pass. Widgets give no way to scroll a list directly.
-            val settling = widgetState[settlingKey] ?: false
+            // A deadline rather than a flag: if the action that set it is killed before it
+            // can clear it, the loading frame expires by itself instead of sticking.
+            val settling = System.currentTimeMillis() < (widgetState[settlingUntilKey] ?: 0L)
             // A widget update travels as one RemoteViews parcel, which is why the list has a
             // ceiling: past it rows come back empty.
             val storyLimit = pageSize
@@ -1106,14 +1114,16 @@ private suspend fun turnPage(context: Context, appWidgetId: Int, glanceId: Glanc
     editWidgetState(context, appWidgetId, glanceId) { prefs ->
         val current = prefs[pageIndexKey] ?: 0
         prefs[pageIndexKey] = (if (forward) current + 1 else current - 1).coerceAtLeast(0)
-        prefs[settlingKey] = true
+        prefs[settlingUntilKey] = System.currentTimeMillis() + SETTLE_MILLIS
     }
     settle(context, appWidgetId, glanceId)
 }
 
+private const val SETTLE_MILLIS = 450L
+
 private suspend fun settle(context: Context, appWidgetId: Int, glanceId: GlanceId) {
-    delay(450)
-    editWidgetState(context, appWidgetId, glanceId) { prefs -> prefs[settlingKey] = false }
+    delay(SETTLE_MILLIS)
+    editWidgetState(context, appWidgetId, glanceId) { prefs -> prefs[settlingUntilKey] = 0L }
 }
 
 class PreviousPageAction : ActionCallback {
@@ -1146,7 +1156,7 @@ class ResetPageAction : ActionCallback {
         val appWidgetId = parameters.widgetId(context, glanceId)
         editWidgetState(context, appWidgetId, glanceId) { prefs ->
             prefs[pageIndexKey] = 0
-            prefs[settlingKey] = true
+            prefs[settlingUntilKey] = System.currentTimeMillis() + SETTLE_MILLIS
         }
         settle(context, appWidgetId, glanceId)
     }
@@ -1254,8 +1264,11 @@ class RefreshAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters,
     ) {
-        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(glanceId)
-        WidgetInstancePreferences(context).setPageIndex(appWidgetId, 0)
+        val appWidgetId = parameters.widgetId(context, glanceId)
+        editWidgetState(context, appWidgetId, glanceId) { prefs ->
+            prefs[pageIndexKey] = 0
+            prefs[settlingUntilKey] = 0L
+        }
         coroutineScope {
             val refresh = launch { NewsRepository.refreshNow() }
             // Paint the spinner straight away instead of only showing the result.
