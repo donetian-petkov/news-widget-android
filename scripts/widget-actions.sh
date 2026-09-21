@@ -95,9 +95,17 @@ tap "Power on" desc 3
 wait_for "Power off" 20 && check "power on" 0 "$(status)" || check "power on" 1 "$(status)"
 
 "$ADB" logcat -c
+BEFORE_STATUS="$(status)"
 tap "Refresh" desc 3
-OK=1; for _ in $(seq 1 30); do sleep 2; "$ADB" logcat -d | grep -q "AiNewsRefresh: fetched" && { OK=0; break; }; done
-check "refresh fetches" "$OK"
+# Either the app logs a fetch, or the "Updated" time moves - a refresh that was already
+# running when we tapped counts too.
+OK=1
+for _ in $(seq 1 45); do
+  sleep 2
+  "$ADB" logcat -d | grep -q "AiNewsRefresh: fetched" && { OK=0; break; }
+  [ "$(status)" != "$BEFORE_STATUS" ] && { OK=0; break; }
+done
+check "refresh fetches" "$OK" "$(status)"
 wait_gone "Fetching" 30 && check "refresh finishes" 0 "$(status)" || check "refresh finishes" 1 "$(status)"
 images_ok 02-after-refresh && check "thumbnails survive a refresh" 0 || check "thumbnails survive a refresh" 1
 
@@ -107,7 +115,7 @@ FIRST="$(titles)"
 reach "Load next" && tap "Load next" any 7
 C2="$(counter)"
 [ -n "$C2" ] && [ "$C2" != "1-10 of ${N}" ] && check "load next stories" 0 "$C2" || check "load next stories" 1 "$C2"
-[ "$FIRST" != "$(titles)" ] && check "the second page lands on new stories at the top" 0 || check "the second page lands on new stories at the top" 1
+[ "$FIRST" != "$(titles)" ] && has "Load previous" && check "the second page lands on new stories at the top" 0 || check "the second page lands on new stories at the top" 1
 images_ok 03-page-two && check "thumbnails on the second page" 0 || check "thumbnails on the second page" 1
 has "Load previous" && check "the previous-page button appears" 0 || check "the previous-page button appears" 1
 
@@ -117,6 +125,7 @@ C3="$(counter)"
 reach "Load next" && tap "Load next" any 7
 C4="$(counter)"
 [ "$C4" != "$C3" ] && check "load next a third time" 0 "$C4" || check "load next a third time" 1 "$C4"
+has "Load previous" && check "the fourth page lands at the top too" 0 || check "the fourth page lands at the top too" 1
 images_ok 04-page-four && check "thumbnails on the fourth page" 0 || check "thumbnails on the fourth page" 1
 
 tap "Load previous" any 7

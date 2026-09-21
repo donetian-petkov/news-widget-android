@@ -480,7 +480,9 @@ class NewsWidget : GlanceAppWidget() {
                                         )
                                         .padding(vertical = 12.dp),
                                 ) {
-                                    if (fetching) {
+                                    // A fetch in the background must not take the pager away:
+                                    // the next ten stories are already here to be read.
+                                    if (fetching && !hasNextPage) {
                                         CircularProgressIndicator(
                                             color = ColorProvider(palette.statusText),
                                             modifier = GlanceModifier.size(14.dp),
@@ -489,8 +491,8 @@ class NewsWidget : GlanceAppWidget() {
                                     }
                                     Text(
                                         text = when {
-                                            fetching -> "Fetching new stories"
                                             hasNextPage -> "Load next $pageSize stories"
+                                            fetching -> "Fetching new stories"
                                             else -> "Fetch new stories"
                                         },
                                         style = TextStyle(
@@ -541,7 +543,7 @@ class NewsWidget : GlanceAppWidget() {
                     ) {
                         Text(
                             text = when {
-                                fetching -> "Fetching"
+                                stories.isEmpty() && fetching -> "Fetching"
                                 stories.isEmpty() -> "Nothing to show"
                                 else -> "$firstStoryNumber-${firstStoryNumber + stories.size - 1} " +
                                     "of ${allWidgetStories.size}"
@@ -1148,6 +1150,7 @@ class ToggleRuntimeAction : ActionCallback {
         parameters: ActionParameters,
     ) {
         NewsRepository.toggleRuntime()
+        refreshWidget(context, parameters.widgetId(context, glanceId), glanceId)
         NewsWidget().updateAll(context)
     }
 }
@@ -1163,12 +1166,20 @@ private suspend fun turnPage(context: Context, appWidgetId: Int, glanceId: Glanc
     editWidgetState(context, appWidgetId, glanceId) { prefs ->
         val current = prefs[pageIndexKey] ?: 0
         prefs[pageIndexKey] = (if (forward) current + 1 else current - 1).coerceAtLeast(0)
-        prefs[settlingUntilKey] = System.currentTimeMillis() + SETTLE_MILLIS
+        prefs[settlingUntilKey] = System.currentTimeMillis() + SETTLE_EXPIRY_MILLIS
     }
     settle(context, appWidgetId, glanceId)
 }
 
-private const val SETTLE_MILLIS = 700L
+/**
+ * How long the loading frame stays up. It has to outlast drawing the frame itself, or the
+ * story list is pushed again before the short frame ever reaches the screen and the list
+ * comes back scrolled where it was instead of at the top of the new page.
+ */
+private const val SETTLE_MILLIS = 1_200L
+
+/** Only a safety net: if the action is killed before it can clear the flag, it expires. */
+private const val SETTLE_EXPIRY_MILLIS = 10_000L
 
 private suspend fun settle(context: Context, appWidgetId: Int, glanceId: GlanceId) {
     delay(SETTLE_MILLIS)
@@ -1205,7 +1216,7 @@ class ResetPageAction : ActionCallback {
         val appWidgetId = parameters.widgetId(context, glanceId)
         editWidgetState(context, appWidgetId, glanceId) { prefs ->
             prefs[pageIndexKey] = 0
-            prefs[settlingUntilKey] = System.currentTimeMillis() + SETTLE_MILLIS
+            prefs[settlingUntilKey] = System.currentTimeMillis() + SETTLE_EXPIRY_MILLIS
         }
         settle(context, appWidgetId, glanceId)
     }
@@ -1453,6 +1464,7 @@ class OpenStoryAction : ActionCallback {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
+        refreshWidget(context, parameters.widgetId(context, glanceId), glanceId)
         NewsWidget().updateAll(context)
     }
 }
