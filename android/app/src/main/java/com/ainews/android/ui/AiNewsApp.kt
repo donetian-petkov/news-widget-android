@@ -2788,16 +2788,20 @@ private data class StoryDetailBlock(
 )
 
 private fun NewsStory.detailBlocks(selectedSection: StoryDetailSection): List<StoryDetailBlock> {
+    // The widget card shows the best text a story has - the AI research if there is any,
+    // then a translation, and the feed's own words otherwise. This screen led with the
+    // feed's words whatever else existed, so opening an enriched story from the widget
+    // showed different words from the card that was tapped. Same order here now.
     val blocks = buildList {
-        add(StoryDetailBlock(StoryDetailSection.Summary, "Summary", summary))
-        neutralTitle?.takeIf { it.isNotBlank() }?.let {
-            add(StoryDetailBlock(StoryDetailSection.Story, "Neutral title", it))
-        }
         research?.takeIf { it.isNotBlank() }?.let {
             add(StoryDetailBlock(StoryDetailSection.Research, "Research", it))
         }
         translation?.takeIf { it.isNotBlank() }?.let {
             add(StoryDetailBlock(StoryDetailSection.Translation, "Translation", it))
+        }
+        add(StoryDetailBlock(StoryDetailSection.Summary, "Summary", summary))
+        neutralTitle?.takeIf { it.isNotBlank() }?.let {
+            add(StoryDetailBlock(StoryDetailSection.Story, "Neutral title", it))
         }
     }
     if (selectedSection == StoryDetailSection.Story) return blocks
