@@ -128,6 +128,12 @@ private const val STACK_SUMMARY_MAX_LINES = 40
 
 /** Longest passage that still fits a card comfortably; longer ones are split on a space. */
 private const val STACK_PASSAGE_MAX_CHARS = 180
+
+/** The picture's share of the card, kept below the story's so the words lead. */
+private const val STACK_HERO_SHARE = 0.18f
+
+/** Below this the card is too short to spare any room for a picture. */
+private val STACK_HERO_MIN_WIDGET_HEIGHT = 240.dp
 private const val STORY_LOAD_TIMEOUT_MILLIS = 5_000L
 
 /** How many story cards fit in a widget of this height without scrolling. */
@@ -455,6 +461,7 @@ class NewsWidget : GlanceAppWidget() {
                             .takeIf { size.width >= 220.dp && size.height >= 150.dp },
                         actionStyle = if (showActions) WidgetActionStyle.Full else WidgetActionStyle.None,
                         fillHeight = true,
+                        heroHeight = stackHeroHeight(size.height, metrics.heroImageHeight),
                         showSummary = true,
                         showExtraActions = size.width >= 300.dp,
                         buttonBackground = flatButtonBackground,
@@ -570,9 +577,10 @@ class NewsWidget : GlanceAppWidget() {
                                 size.width >= 260.dp -> WidgetActionStyle.Compact
                                 else -> WidgetActionStyle.None
                             },
-                            showSummary = stackMode &&
-                                size.width >= 260.dp &&
-                                size.height >= metrics.summaryHeightThreshold,
+                            // Every card shows the opening of its story, so it is plain that
+                            // there is something to read and that the chevron opens it. Before
+                            // this a list card was a headline and nothing else.
+                            showSummary = size.width >= metrics.summaryWidthThreshold,
                             showExtraActions = size.width >= 300.dp,
                             buttonBackground = flatButtonBackground,
                             cardBackground = cardBackground,
@@ -699,6 +707,8 @@ private fun WidgetStoryRow(
     actionStyle: WidgetActionStyle,
     /** One story on its own stretches to fill the widget instead of leaving a void below it. */
     fillHeight: Boolean = false,
+    /** How tall its picture may be; zero leaves the picture out entirely. */
+    heroHeight: Dp = 0.dp,
     showSummary: Boolean,
     showExtraActions: Boolean,
     buttonBackground: Int,
@@ -740,14 +750,14 @@ private fun WidgetStoryRow(
                 // One story has the whole widget to itself. Its picture runs across the card
                 // and the text below is handed every line that is left, so the story sits in
                 // the space instead of huddling at the top above an empty half.
-                if (thumbnail != null) {
+                if (thumbnail != null && heroHeight > 0.dp) {
                     Image(
                         provider = ImageProvider(thumbnail),
                         contentDescription = story.title,
                         contentScale = ContentScale.Crop,
                         modifier = GlanceModifier
                             .fillMaxWidth()
-                            .height(metrics.heroImageHeight)
+                            .height(heroHeight)
                             .cornerRadius(8.dp),
                     )
                     Spacer(GlanceModifier.height(8.dp))
@@ -873,7 +883,9 @@ private fun WidgetStoryRow(
                             actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                         ),
                         backgroundRes = buttonBackground,
-                        tint = if (expanded) palette.statusText else palette.muted,
+                        // Accent, not grey: this is how the rest of the story is reached,
+                        // and beside the other buttons it used to disappear.
+                        tint = palette.statusText,
                         compact = true,
                     )
                 }
@@ -1003,7 +1015,7 @@ private fun StoryTextBlock(
     expanded: Boolean,
     palette: WidgetPalette,
     type: WidgetTypography,
-    summaryMaxLines: Int = if (expanded) 10 else 3,
+    summaryMaxLines: Int = if (expanded) 10 else 2,
     modifier: GlanceModifier = GlanceModifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -1020,7 +1032,7 @@ private fun StoryTextBlock(
                 fontWeight = if (story.isRead) FontWeight.Normal else FontWeight.Bold,
                 fontSize = type.title,
             ),
-            maxLines = if (expanded) 6 else 2,
+            maxLines = if (expanded) 6 else 3,
         )
         Spacer(GlanceModifier.height(2.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1129,9 +1141,11 @@ private data class WidgetMetrics(
     val sectionGap: Dp,
     val thumbnailSize: Dp,
     val thumbnailGap: Dp,
-    /** How tall the picture is on the single-story card, where it runs the full width. */
+    /** Ceiling on the picture on the single-story card, where it runs the full width. */
     val heroImageHeight: Dp,
     val summaryHeightThreshold: Dp,
+    /** Narrower than this and a card has no room for the opening of its story. */
+    val summaryWidthThreshold: Dp,
     val extraStoryCapacity: Int,
 )
 
@@ -1151,8 +1165,9 @@ private fun widgetMetrics(densityMode: WidgetDensityMode): WidgetMetrics =
             sectionGap = 10.dp,
             thumbnailSize = 58.dp,
             thumbnailGap = 8.dp,
-            heroImageHeight = 150.dp,
+            heroImageHeight = 120.dp,
             summaryHeightThreshold = 180.dp,
+            summaryWidthThreshold = 220.dp,
             extraStoryCapacity = 0,
         )
 
@@ -1163,8 +1178,9 @@ private fun widgetMetrics(densityMode: WidgetDensityMode): WidgetMetrics =
             sectionGap = 7.dp,
             thumbnailSize = 46.dp,
             thumbnailGap = 6.dp,
-            heroImageHeight = 120.dp,
+            heroImageHeight = 100.dp,
             summaryHeightThreshold = 260.dp,
+            summaryWidthThreshold = 220.dp,
             extraStoryCapacity = 1,
         )
     }
@@ -1195,6 +1211,17 @@ private fun widgetTypography(
         body = (base.body.value * scale).sp,
         meta = (base.meta.value * scale).sp,
     )
+}
+
+/**
+ * How much of the single-story card the picture may take. It is a share of the widget's
+ * height rather than a fixed slab, so the words always get more room than the photograph,
+ * and on a short widget the picture is dropped altogether to leave the story readable.
+ */
+private fun stackHeroHeight(widgetHeight: Dp, ceiling: Dp): Dp {
+    if (widgetHeight < STACK_HERO_MIN_WIDGET_HEIGHT) return 0.dp
+    val share = (widgetHeight.value * STACK_HERO_SHARE).dp
+    return minOf(share, ceiling)
 }
 
 private fun normalizedStackIndex(stackIndex: Int, storyCount: Int): Int {
