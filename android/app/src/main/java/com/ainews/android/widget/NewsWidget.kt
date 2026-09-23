@@ -115,6 +115,16 @@ private val revisionKey = longPreferencesKey("revision")
 
 private const val WIDGET_IMAGE_TIMEOUT_MILLIS = 9_000L
 private const val WIDGET_PAGE_SIZE = 10
+
+/**
+ * The single-story card draws its picture across the whole width, so it needs more than the
+ * stamp-sized thumbnail the list uses. Only one picture travels in that mode, which keeps the
+ * update well inside the widget's bitmap budget.
+ */
+private const val STACK_IMAGE_MAX_PX = 480
+
+/** High enough never to cut the story itself: the card's height is what ends the text. */
+private const val STACK_SUMMARY_MAX_LINES = 40
 private const val STORY_LOAD_TIMEOUT_MILLIS = 5_000L
 
 /** How many story cards fit in a widget of this height without scrolling. */
@@ -226,8 +236,12 @@ class NewsWidget : GlanceAppWidget() {
             // only once, when Glance starts a session for the widget, which is why pictures
             // used to stop arriving after the first page.
             val wanted = stories.mapNotNull { story -> story.imageUrl?.let { story.id to it } }
+            // A stamp-sized picture looks like a smudge when it runs across the whole card,
+            // so the single-story layout decodes a bigger one. Only one image is carried in
+            // that mode, so the update stays well inside the widget bitmap budget.
+            val imageMaxPx = if (stackMode) STACK_IMAGE_MAX_PX else ImageDiskCache.THUMBNAIL_MAX_PX
             var images by remember { mutableStateOf(emptyMap<String, Bitmap>()) }
-            LaunchedEffect(wanted.joinToString(",") { it.first }) {
+            LaunchedEffect(wanted.joinToString(",") { it.first } + "@" + imageMaxPx) {
                 if (wanted.isEmpty()) {
                     images = emptyMap()
                     return@LaunchedEffect
@@ -235,7 +249,8 @@ class NewsWidget : GlanceAppWidget() {
                 // Whatever is already on disk goes up straight away.
                 val cached = withContext(Dispatchers.IO) {
                     wanted.mapNotNull { (storyId, url) ->
-                        imageDiskCache.loadCachedThumbnail(context, url)?.let { storyId to it }
+                        imageDiskCache.loadCachedThumbnail(context, url, imageMaxPx)
+                            ?.let { storyId to it }
                     }.toMap()
                 }
                 images = cached
@@ -245,7 +260,7 @@ class NewsWidget : GlanceAppWidget() {
                         val bitmap = withContext(Dispatchers.IO) {
                             withTimeoutOrNull(WIDGET_IMAGE_TIMEOUT_MILLIS) {
                                 runCatching {
-                                    imageDiskCache.loadOrFetchThumbnail(context, url)
+                                    imageDiskCache.loadOrFetchThumbnail(context, url, imageMaxPx)
                                 }.getOrNull()
                             }
                         }
@@ -718,7 +733,36 @@ private fun WidgetStoryRow(
                 )
                 .padding(metrics.cardPadding),
         ) {
-            if (thumbnail == null && story.imageUrl == null) {
+            if (fillHeight) {
+                // One story has the whole widget to itself. Its picture runs across the card
+                // and the text below is handed every line that is left, so the story sits in
+                // the space instead of huddling at the top above an empty half.
+                if (thumbnail != null) {
+                    Image(
+                        provider = ImageProvider(thumbnail),
+                        contentDescription = story.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = GlanceModifier
+                            .fillMaxWidth()
+                            .height(metrics.heroImageHeight)
+                            .cornerRadius(8.dp),
+                    )
+                    Spacer(GlanceModifier.height(8.dp))
+                }
+                StoryTextBlock(
+                    story = story,
+                    widgetId = widgetId,
+                    isAlert = isAlert,
+                    showSummary = true,
+                    expanded = true,
+                    palette = palette,
+                    type = type,
+                    // No fixed cap here: the card's own height decides where the text stops.
+                    summaryMaxLines = STACK_SUMMARY_MAX_LINES,
+                    modifier = GlanceModifier.defaultWeight(),
+                )
+                Spacer(GlanceModifier.height(8.dp))
+            } else if (thumbnail == null && story.imageUrl == null) {
                 StoryTextBlock(
                     story = story,
                     widgetId = widgetId,
@@ -883,7 +927,9 @@ private fun WidgetStoryRow(
                 }
             }
         }
-        Spacer(GlanceModifier.height(metrics.cardGap))
+        if (!fillHeight) {
+            Spacer(GlanceModifier.height(metrics.cardGap))
+        }
     }
 }
 
@@ -939,8 +985,10 @@ private fun StoryTextBlock(
     expanded: Boolean,
     palette: WidgetPalette,
     type: WidgetTypography,
+    summaryMaxLines: Int = if (expanded) 10 else 3,
+    modifier: GlanceModifier = GlanceModifier,
 ) {
-    Column(modifier = GlanceModifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = story.widgetTitle(),
             style = TextStyle(
@@ -1004,7 +1052,7 @@ private fun StoryTextBlock(
                     color = ColorProvider(palette.body),
                     fontSize = type.body,
                 ),
-                maxLines = if (expanded) 10 else 3,
+                maxLines = summaryMaxLines,
             )
         }
     }
@@ -1063,6 +1111,8 @@ private data class WidgetMetrics(
     val sectionGap: Dp,
     val thumbnailSize: Dp,
     val thumbnailGap: Dp,
+    /** How tall the picture is on the single-story card, where it runs the full width. */
+    val heroImageHeight: Dp,
     val summaryHeightThreshold: Dp,
     val extraStoryCapacity: Int,
 )
@@ -1083,6 +1133,7 @@ private fun widgetMetrics(densityMode: WidgetDensityMode): WidgetMetrics =
             sectionGap = 10.dp,
             thumbnailSize = 58.dp,
             thumbnailGap = 8.dp,
+            heroImageHeight = 150.dp,
             summaryHeightThreshold = 180.dp,
             extraStoryCapacity = 0,
         )
@@ -1094,6 +1145,7 @@ private fun widgetMetrics(densityMode: WidgetDensityMode): WidgetMetrics =
             sectionGap = 7.dp,
             thumbnailSize = 46.dp,
             thumbnailGap = 6.dp,
+            heroImageHeight = 120.dp,
             summaryHeightThreshold = 260.dp,
             extraStoryCapacity = 1,
         )
