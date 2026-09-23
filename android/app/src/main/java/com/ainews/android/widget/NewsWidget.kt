@@ -851,7 +851,7 @@ private fun WidgetStoryRow(
                     // such button at all, so the only thing a tap could do was leave for the
                     // publisher's website.
                     WidgetIconButton(
-                        iconRes = R.drawable.ic_summary,
+                        iconRes = R.drawable.ic_article,
                         contentDescription = "Open the full story in the app",
                         action = actionRunCallback<OpenStorySectionAction>(
                             actionParametersOf(
@@ -913,7 +913,7 @@ private fun WidgetStoryRow(
                 // ones only appear when there is room for them.
                 Row(horizontalAlignment = Alignment.Start, verticalAlignment = Alignment.CenterVertically) {
                     WidgetIconButton(
-                        iconRes = R.drawable.ic_summary,
+                        iconRes = R.drawable.ic_article,
                         contentDescription = "Open the full story in the app",
                         action = actionRunCallback<OpenStorySectionAction>(
                             actionParametersOf(
