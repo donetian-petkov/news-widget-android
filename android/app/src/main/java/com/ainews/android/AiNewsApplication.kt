@@ -6,6 +6,7 @@ import com.ainews.android.notifications.AlertNotifier
 import com.ainews.android.worker.MonitorScanWorker
 import com.ainews.android.worker.RefreshAlarmReceiver
 import com.ainews.android.worker.RefreshNewsWorker
+import com.ainews.android.worker.ScreenLookReceiver
 
 class AiNewsApplication : Application() {
     override fun onCreate() {
@@ -16,5 +17,8 @@ class AiNewsApplication : Application() {
         RefreshNewsWorker.schedule(this, cadence.coerceAtLeast(15))
         if (cadence < 15) RefreshAlarmReceiver.schedule(this, cadence)
         MonitorScanWorker.schedule(this, NewsRepository.state.value.settings.monitorScanHour)
+        // Waking the phone is the closest Android gets to telling us the widget is
+        // being looked at, and it starts the clock on the NEW badges.
+        ScreenLookReceiver.register(this)
     }
 }

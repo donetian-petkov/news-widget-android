@@ -1585,7 +1585,7 @@ class RefreshAction : ActionCallback {
             prefs[settlingUntilKey] = 0L
         }
         coroutineScope {
-            val refresh = launch { NewsRepository.refreshNow() }
+            val refresh = launch { NewsRepository.refreshNow(manual = true) }
             // Paint the spinner straight away instead of only showing the result.
             delay(150)
             redrawAllWidgets(context)

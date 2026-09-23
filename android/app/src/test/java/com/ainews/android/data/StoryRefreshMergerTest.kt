@@ -65,6 +65,27 @@ class StoryRefreshMergerTest {
         assertTrue(result.stories.first { it.id == "two" }.isNew)
     }
 
+    @Test
+    fun aRefreshTheReaderAskedForClearsWhatWasAlreadyThere() {
+        val previous = listOf(story("one").copy(isNew = true))
+        val fetched = listOf(story("one"), story("two"))
+
+        val result = StoryRefreshMerger.merge(previous, fetched, clearExistingNew = true)
+
+        assertFalse(result.stories.first { it.id == "one" }.isNew)
+        assertTrue(result.stories.first { it.id == "two" }.isNew)
+    }
+
+    @Test
+    fun keepsTheTimeAStoryWasFirstSeen() {
+        val previous = listOf(story("one").copy(fetchedAt = 100))
+        val fetched = listOf(story("one").copy(fetchedAt = 900))
+
+        val result = StoryRefreshMerger.merge(previous, fetched)
+
+        assertEquals(100L, result.stories.single().fetchedAt)
+    }
+
     private fun story(id: String): NewsStory =
         NewsStory(
             id = id,

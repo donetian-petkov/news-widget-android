@@ -702,10 +702,14 @@ object NewsRepository {
      * on "Updating" forever, because the slower one wrote its start state after the faster
      * one had already finished.
      */
-    suspend fun refreshNow() {
+    /**
+     * @param manual the reader pressed refresh themselves, which also means they are looking
+     * at the widget right now: whatever is already on it stops being new.
+     */
+    suspend fun refreshNow(manual: Boolean = false) {
         if (!refreshLock.tryAcquire()) return
         try {
-            refreshNowLocked()
+            refreshNowLocked(manual)
         } finally {
             refreshLock.release()
             // Whatever happened, the widget must not be left claiming it is still fetching.
@@ -722,7 +726,7 @@ object NewsRepository {
         }
     }
 
-    private suspend fun refreshNowLocked() {
+    private suspend fun refreshNowLocked(manual: Boolean = false) {
         if (!_state.value.runtime.runtimeEnabled || !_state.value.runtime.fetchEnabled) {
             _state.update {
                 it.copy(
@@ -796,7 +800,11 @@ object NewsRepository {
         }
 
         android.util.Log.i("AiNewsRefresh", "fetched ${fetchedStories.size} stories")
-        val refreshResult = StoryRefreshMerger.merge(_state.value.stories, fetchedStories)
+        val refreshResult = StoryRefreshMerger.merge(
+            previousStories = _state.value.stories,
+            fetchedStories = fetchedStories,
+            clearExistingNew = manual,
+        )
         val storiesToStore = refreshResult.stories
         val previousIds = _state.value.stories.map { it.id }.toSet()
         val keywordArrivals = storiesToStore
@@ -884,6 +892,21 @@ object NewsRepository {
                         read -> it.copy(isRead = true, readAt = readAt, isNew = false)
                         else -> it.copy(isRead = false, readAt = null)
                     }
+                },
+            )
+        }
+    }
+
+    /**
+     * Ends the NEW badge on everything that was already on the widget when the reader last
+     * arrived at their home screen. Stories that landed after that keep theirs.
+     */
+    suspend fun clearNewMarkersSeenBefore(seenAt: Long) {
+        withContext(Dispatchers.IO) { storyDao.clearNewMarkersSeenBefore(seenAt) }
+        _state.update { current ->
+            current.copy(
+                stories = current.stories.map {
+                    if (it.fetchedAt <= seenAt) it.copy(isNew = false) else it
                 },
             )
         }

@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handleShortcutIntent() {
         when (intent?.action) {
-            ACTION_REFRESH -> lifecycleScope.launch { NewsRepository.refreshNow() }
+            ACTION_REFRESH -> lifecycleScope.launch { NewsRepository.refreshNow(manual = true) }
             ACTION_FILTERED -> NewsRepository.setFeedViewMode(FeedViewMode.Filtered)
             ACTION_LIBRARY -> NewsRepository.setFeedViewMode(FeedViewMode.Saved)
         }

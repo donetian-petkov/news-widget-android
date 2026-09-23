@@ -322,7 +322,7 @@ fun AiNewsApp() {
                         onExportOpml = NewsRepository::exportOpml,
                         onRefresh = {
                             scope.launch {
-                                NewsRepository.refreshNow()
+                                NewsRepository.refreshNow(manual = true)
                                 redrawAllWidgets(context)
                             }
                         },
@@ -414,7 +414,7 @@ fun AiNewsApp() {
                         state = state,
                         onRefresh = {
                             scope.launch {
-                                NewsRepository.refreshNow()
+                                NewsRepository.refreshNow(manual = true)
                                 redrawAllWidgets(context)
                             }
                         },
