@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ainews.android.MainActivity
 import com.ainews.android.R
+import com.ainews.android.data.BackendMode
 import com.ainews.android.data.FetchStatus
 import com.ainews.android.data.FontScale
 import com.ainews.android.data.ThemePalette
@@ -359,6 +360,22 @@ class NewsWidget : GlanceAppWidget() {
                                 ),
                                 style = TextStyle(
                                     color = ColorProvider(if (healthy) palette.muted else palette.warningText),
+                                    fontSize = type.meta,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
+                        if (showStatusText) {
+                            Spacer(GlanceModifier.height(2.dp))
+                            Text(
+                                text = widgetWorkLine(
+                                    tokensToday = tokensToday,
+                                    pendingAiCount = state.pendingAiCount,
+                                    backendMode = settings.backendMode,
+                                    aiQueueStatus = state.runtime.aiQueueStatus,
+                                ),
+                                style = TextStyle(
+                                    color = ColorProvider(palette.muted),
                                     fontSize = type.meta,
                                 ),
                                 maxLines = 1,
@@ -1346,12 +1363,36 @@ private fun widgetMetaLine(
     }
     val stories = if (storyCount == 1) "1 story" else "$storyCount stories"
     val mode = if (layoutMode == WidgetLayoutMode.Column) "" else " · one at a time"
-    val tokens = if (tokensToday > 0) " · ${formatTokenCount(tokensToday)} tokens" else ""
-    return if (showClock) "$state · $stories$mode$tokens" else "$stories$mode$tokens"
+    return if (showClock) "$state · $stories$mode" else "$stories$mode"
 }
 
-private fun formatTokenCount(tokens: Int): String =
-    if (tokens >= 1000) "${"%.1f".format(tokens / 1000.0)}k" else tokens.toString()
+/**
+ * The second status line: what the app is spending and what it is still working through.
+ * All of this existed already but only the tokens were ever put on the widget, tacked onto
+ * the end of a one-line status that was always too long to reach them.
+ */
+private fun widgetWorkLine(
+    tokensToday: Int,
+    pendingAiCount: Int,
+    backendMode: BackendMode,
+    aiQueueStatus: String,
+): String {
+    val parts = buildList {
+        add(if (backendMode == BackendMode.RemoteBackend) "Server on" else "On this phone")
+        if (tokensToday > 0) add("${formatTokenCount(tokensToday)} tokens")
+        if (aiQueueStatus.isNotBlank() && !aiQueueStatus.equals("Idle", ignoreCase = true)) {
+            add(aiQueueStatus)
+        }
+        if (pendingAiCount > 0) add("$pendingAiCount waiting")
+    }
+    return parts.joinToString(" · ")
+}
+
+private fun formatTokenCount(tokens: Int): String = when {
+    tokens >= 1_000_000 -> "${"%.1f".format(tokens / 1_000_000.0)}M"
+    tokens >= 1_000 -> "${"%.1f".format(tokens / 1_000.0)}k"
+    else -> tokens.toString()
+}
 
 class NewsWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = NewsWidget()
