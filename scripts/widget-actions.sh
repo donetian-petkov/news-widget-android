@@ -216,7 +216,7 @@ if tap "Pin story" desc 5; then
   tap "Unpin story" desc 5 && check "unpin a story" 0 || check "unpin a story" 1
 else check "pin a story" 1 "no pin button"; fi
 if tap "Copy link" desc 4; then check "copy link" 0; else check "copy link" 1 "no copy button"; fi
-if tap "Open summary" desc 6; then
+if tap "Open the full story" desc 6; then
   "$ADB" shell dumpsys activity activities | grep -q "com.ainews.android/.MainActivity" && check "open the summary" 0 || check "open the summary" 1
   home
 else check "open the summary" 1 "no summary button"; fi

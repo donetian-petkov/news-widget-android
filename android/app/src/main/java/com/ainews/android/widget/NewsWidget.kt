@@ -50,6 +50,7 @@ import androidx.glance.layout.Column
 import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
+import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -421,6 +422,31 @@ class NewsWidget : GlanceAppWidget() {
                     }
                 }
 
+                // One story on its own is drawn outside the list, given the leftover height,
+                // so it fills the widget instead of sitting in a sea of empty space: a card
+                // inside a scrolling list only ever gets the height of its own content.
+                val stackStory = stories.firstOrNull().takeIf { stackMode }
+                if (stackStory != null) {
+                    WidgetStoryRow(
+                        story = stackStory,
+                        widgetId = appWidgetId,
+                        showDivider = false,
+                        expanded = true,
+                        isAlert = state.alertMatches.any { it.storyId == stackStory.id },
+                        thumbnail = images[stackStory.id]
+                            .takeIf { size.width >= 220.dp && size.height >= 150.dp },
+                        actionStyle = if (showActions) WidgetActionStyle.Full else WidgetActionStyle.None,
+                        fillHeight = true,
+                        showSummary = true,
+                        showExtraActions = size.width >= 300.dp,
+                        buttonBackground = flatButtonBackground,
+                        cardBackground = cardBackground,
+                        palette = palette,
+                        metrics = metrics,
+                        type = type,
+                        modifier = GlanceModifier.defaultWeight(),
+                    )
+                } else {
                 // A LazyColumn keeps every story on screen: a plain Column is capped at ten
                 // children by the remote-views translation, which silently dropped later stories.
                 LazyColumn(modifier = GlanceModifier.defaultWeight()) {
@@ -512,7 +538,11 @@ class NewsWidget : GlanceAppWidget() {
                             story = story,
                             widgetId = appWidgetId,
                             showDivider = showDivider,
-                            expanded = expandedStoryId.orEmpty().isNotEmpty() && story.id == expandedStoryId,
+                            // One story on its own has the whole widget to fill, so it is
+                            // always shown in full rather than leaving the space below empty.
+                            expanded = stackMode ||
+                                (expandedStoryId.orEmpty().isNotEmpty() && story.id == expandedStoryId),
+                            fillHeight = stackMode,
                             isAlert = state.alertMatches.any { it.storyId == story.id },
                             thumbnail = images[story.id]
                                 .takeIf { size.width >= 220.dp && size.height >= 150.dp },
@@ -533,6 +563,7 @@ class NewsWidget : GlanceAppWidget() {
                             type = type,
                         )
                     }
+                }
                 }
 
                 if (!stackMode && showActions) {
@@ -648,6 +679,8 @@ private fun WidgetStoryRow(
     isAlert: Boolean,
     thumbnail: android.graphics.Bitmap?,
     actionStyle: WidgetActionStyle,
+    /** One story on its own stretches to fill the widget instead of leaving a void below it. */
+    fillHeight: Boolean = false,
     showSummary: Boolean,
     showExtraActions: Boolean,
     buttonBackground: Int,
@@ -655,11 +688,13 @@ private fun WidgetStoryRow(
     palette: WidgetPalette,
     metrics: WidgetMetrics,
     type: WidgetTypography,
+    modifier: GlanceModifier = GlanceModifier,
 ) {
-    Column(modifier = GlanceModifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth()) {
         if (showDivider) {
             FeedDivider(
                 feedName = story.source,
+                accent = categoryColor(story, palette),
                 palette = palette,
                 type = type,
             )
@@ -667,6 +702,7 @@ private fun WidgetStoryRow(
         Column(
             modifier = GlanceModifier
                 .fillMaxWidth()
+                .then(if (fillHeight) GlanceModifier.fillMaxHeight() else GlanceModifier)
                 .then(
                     if (isAlert) {
                         GlanceModifier.background(ColorProvider(palette.alertCard))
@@ -781,7 +817,22 @@ private fun WidgetStoryRow(
                 }
             }
             if (actionStyle == WidgetActionStyle.Full) {
-                Row(horizontalAlignment = Alignment.Start) {
+                // One row, not two: six buttons wrapping onto a second line made the card
+                // look broken. They fit at full size across the card, and the rarely used
+                // ones only appear when there is room for them.
+                Row(horizontalAlignment = Alignment.Start, verticalAlignment = Alignment.CenterVertically) {
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_summary,
+                        contentDescription = "Open the full story in the app",
+                        action = actionRunCallback<OpenStorySectionAction>(
+                            actionParametersOf(
+                                storyIdKey to story.id,
+                                storySectionKey to StoryDetailSection.Summary.name,
+                            ),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = palette.statusText,
+                    )
                     WidgetIconButton(
                         iconRes = R.drawable.ic_open,
                         contentDescription = "Open source",
@@ -809,63 +860,21 @@ private fun WidgetStoryRow(
                         backgroundRes = buttonBackground,
                         tint = palette.header,
                     )
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_share,
+                        contentDescription = "Share story",
+                        action = actionRunCallback<ShareStoryAction>(
+                            actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = palette.header,
+                    )
                     if (showExtraActions) {
                         WidgetIconButton(
                             iconRes = R.drawable.ic_copy,
                             contentDescription = "Copy link",
                             action = actionRunCallback<CopyStoryLinkAction>(
                                 actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
-                            ),
-                            backgroundRes = buttonBackground,
-                            tint = palette.header,
-                        )
-                        WidgetIconButton(
-                            iconRes = R.drawable.ic_share,
-                            contentDescription = "Share story",
-                            action = actionRunCallback<ShareStoryAction>(
-                                actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
-                            ),
-                            backgroundRes = buttonBackground,
-                            tint = palette.header,
-                        )
-                    }
-                }
-                Row(horizontalAlignment = Alignment.Start) {
-                    WidgetIconButton(
-                        iconRes = R.drawable.ic_summary,
-                        contentDescription = "Open summary",
-                        action = actionRunCallback<OpenStorySectionAction>(
-                            actionParametersOf(
-                                storyIdKey to story.id,
-                                storySectionKey to StoryDetailSection.Summary.name,
-                            ),
-                        ),
-                        backgroundRes = buttonBackground,
-                        tint = palette.header,
-                    )
-                    if (!story.research.isNullOrBlank()) {
-                        WidgetIconButton(
-                            iconRes = R.drawable.ic_research,
-                            contentDescription = "Open research",
-                            action = actionRunCallback<OpenStorySectionAction>(
-                                actionParametersOf(
-                                    storyIdKey to story.id,
-                                    storySectionKey to StoryDetailSection.Research.name,
-                                ),
-                            ),
-                            backgroundRes = buttonBackground,
-                            tint = palette.header,
-                        )
-                    }
-                    if (!story.translation.isNullOrBlank()) {
-                        WidgetIconButton(
-                            iconRes = R.drawable.ic_translation,
-                            contentDescription = "Open translation",
-                            action = actionRunCallback<OpenStorySectionAction>(
-                                actionParametersOf(
-                                    storyIdKey to story.id,
-                                    storySectionKey to StoryDetailSection.Translation.name,
-                                ),
                             ),
                             backgroundRes = buttonBackground,
                             tint = palette.header,
@@ -892,16 +901,27 @@ private fun StatusDot(
     ) {}
 }
 
+/**
+ * The colour a story's category is drawn in. The same category always gets the same colour,
+ * so the eye can tell world news from sport without reading a word.
+ */
+private fun categoryColor(story: NewsStory, palette: WidgetPalette): Color {
+    val key = story.topicLabels.firstOrNull()?.takeIf { it.isNotBlank() } ?: story.source
+    val index = Math.floorMod(key.lowercase(Locale.getDefault()).hashCode(), palette.categoryColors.size)
+    return palette.categoryColors[index]
+}
+
 @androidx.compose.runtime.Composable
 private fun FeedDivider(
     feedName: String,
+    accent: Color,
     palette: WidgetPalette,
     type: WidgetTypography,
 ) {
     Text(
         text = feedName.uppercase(Locale.getDefault()),
         style = TextStyle(
-            color = ColorProvider(palette.feedLabel),
+            color = ColorProvider(accent),
             fontWeight = FontWeight.Bold,
             fontSize = type.meta,
         ),
@@ -945,13 +965,36 @@ private fun StoryTextBlock(
                 else -> {}
             }
             Text(
-                text = story.widgetSourceLine(),
+                text = formatWidgetTime(story.publishedAt),
                 style = TextStyle(
                     color = ColorProvider(palette.muted),
                     fontSize = type.meta,
                 ),
                 maxLines = 1,
             )
+            // The category is drawn in its own colour, so stories from different worlds are
+            // told apart at a glance instead of every card reading the same grey.
+            story.widgetCategory()?.let { category ->
+                Text(
+                    text = " · $category",
+                    style = TextStyle(
+                        color = ColorProvider(categoryColor(story, palette)),
+                        fontWeight = FontWeight.Medium,
+                        fontSize = type.meta,
+                    ),
+                    maxLines = 1,
+                )
+            }
+            if (story.aiFieldsAvailable) {
+                Text(
+                    text = " · AI",
+                    style = TextStyle(
+                        color = ColorProvider(palette.muted),
+                        fontSize = type.meta,
+                    ),
+                    maxLines = 1,
+                )
+            }
         }
         if (showSummary) {
             Spacer(GlanceModifier.height(4.dp))
@@ -1007,6 +1050,8 @@ private data class WidgetPalette(
     val warningPill: Color,
     val warningText: Color,
     val feedLabel: Color,
+    /** One colour per category, so two stories from different worlds do not look identical. */
+    val categoryColors: List<Color>,
     val pinPill: Color,
     val pinText: Color,
 )
@@ -1109,6 +1154,12 @@ private fun widgetPalette(
         warningPill = Color(palette.alertPanel),
         warningText = Color(palette.accentRose),
         feedLabel = Color(palette.textMuted),
+        categoryColors = listOf(
+            Color(palette.accentBlue),
+            Color(palette.accentCyan),
+            Color(palette.accentGold),
+            Color(palette.accentRose),
+        ),
         pinPill = Color(palette.goldPanel),
         pinText = Color(palette.accentGold),
     )
@@ -1569,6 +1620,9 @@ private fun NewsStory.widgetSourceLine(): String =
         topicLabels.take(2).joinToString(", ").takeIf { it.isNotBlank() },
         "AI".takeIf { aiFieldsAvailable },
     ).joinToString(" · ")
+
+private fun NewsStory.widgetCategory(): String? =
+    topicLabels.take(2).joinToString(", ").takeIf { it.isNotBlank() }
 
 private fun NewsStory.widgetSummary(): String =
     research?.takeIf { it.isNotBlank() }
