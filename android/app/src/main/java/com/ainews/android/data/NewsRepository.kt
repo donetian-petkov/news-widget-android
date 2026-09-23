@@ -820,9 +820,6 @@ object NewsRepository {
         }
         withContext(Dispatchers.IO) {
             storyDao.upsertStories(storiesToStore.map { it.toEntity() })
-            if (refreshResult.sameStorySet) {
-                storyDao.clearNewMarkers()
-            }
         }
     }
 
@@ -874,11 +871,19 @@ object NewsRepository {
 
     fun markRead(storyId: String, read: Boolean = true) {
         val readAt = if (read) System.currentTimeMillis() else null
-        repositoryScope.launch { storyDao.setRead(storyId, read, readAt) }
+        repositoryScope.launch {
+            storyDao.setRead(storyId, read, readAt)
+            // Having read it is what ends its life as a new story.
+            if (read) storyDao.clearNewMarker(storyId)
+        }
         _state.update { current ->
             current.copy(
                 stories = current.stories.map {
-                    if (it.id == storyId) it.copy(isRead = read, readAt = readAt) else it
+                    when {
+                        it.id != storyId -> it
+                        read -> it.copy(isRead = true, readAt = readAt, isNew = false)
+                        else -> it.copy(isRead = false, readAt = null)
+                    }
                 },
             )
         }

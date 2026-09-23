@@ -43,6 +43,28 @@ class StoryRefreshMergerTest {
         assertEquals(1, result.newCount)
     }
 
+    @Test
+    fun aStoryStaysNewWhenALaterFetchBringsNothing() {
+        val previous = listOf(story("one").copy(isNew = true))
+        val fetched = listOf(story("one"))
+
+        val result = StoryRefreshMerger.merge(previous, fetched)
+
+        assertTrue(result.sameStorySet)
+        assertTrue(result.stories.single().isNew)
+    }
+
+    @Test
+    fun aStoryTheReaderHasSeenDoesNotBecomeNewAgain() {
+        val previous = listOf(story("one").copy(isRead = true, isNew = false))
+        val fetched = listOf(story("one"), story("two"))
+
+        val result = StoryRefreshMerger.merge(previous, fetched)
+
+        assertFalse(result.stories.first { it.id == "one" }.isNew)
+        assertTrue(result.stories.first { it.id == "two" }.isNew)
+    }
+
     private fun story(id: String): NewsStory =
         NewsStory(
             id = id,

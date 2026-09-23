@@ -20,6 +20,9 @@ interface StoryDao {
     @Query("UPDATE stories SET isNew = 0")
     fun clearNewMarkers()
 
+    @Query("UPDATE stories SET isNew = 0 WHERE id = :storyId")
+    fun clearNewMarker(storyId: String)
+
     @Query("UPDATE stories SET isHidden = 1, hiddenAt = :hiddenAt WHERE id = :storyId")
     fun hideStory(storyId: String, hiddenAt: Long)
 

@@ -21,12 +21,16 @@ object StoryRefreshMerger {
         val fetchedIds = fetchedStories.map { it.id }.toSet()
         val hiddenById = previousStories.associateBy({ it.id }, { it.isHidden to it.hiddenAt })
         val pinnedById = previousStories.associateBy({ it.id }, { it.isPinned to it.pinnedAt })
+        val newById = previousStories.associateBy({ it.id }, { it.isNew })
         val sameStorySet = fetchedIds == previousIds
         val mergedStories = fetchedStories.map { story ->
             val hiddenState = hiddenById[story.id]
             val pinnedState = pinnedById[story.id]
             story.copy(
-                isNew = !sameStorySet && story.id !in previousIds,
+                // A story stays new until it has been read. It used to lose the badge on the
+                // next fetch that happened to bring nothing, which is a refresh timer, not
+                // the reader: stories went from new to ordinary while nobody was looking.
+                isNew = newById[story.id] ?: true,
                 isHidden = hiddenState?.first ?: false,
                 hiddenAt = hiddenState?.second,
                 isPinned = pinnedState?.first ?: false,
