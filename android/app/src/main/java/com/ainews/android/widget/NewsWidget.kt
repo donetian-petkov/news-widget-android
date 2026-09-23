@@ -123,8 +123,11 @@ private const val WIDGET_PAGE_SIZE = 10
  */
 private const val STACK_IMAGE_MAX_PX = 480
 
-/** High enough never to cut the story itself: the card's height is what ends the text. */
+/** High enough never to cut a passage: the list scrolls rather than truncating. */
 private const val STACK_SUMMARY_MAX_LINES = 40
+
+/** Longest passage that still fits a card comfortably; longer ones are split on a space. */
+private const val STACK_PASSAGE_MAX_CHARS = 180
 private const val STORY_LOAD_TIMEOUT_MILLIS = 5_000L
 
 /** How many story cards fit in a widget of this height without scrolling. */
@@ -753,14 +756,29 @@ private fun WidgetStoryRow(
                     story = story,
                     widgetId = widgetId,
                     isAlert = isAlert,
-                    showSummary = true,
+                    showSummary = false,
                     expanded = true,
                     palette = palette,
                     type = type,
-                    // No fixed cap here: the card's own height decides where the text stops.
-                    summaryMaxLines = STACK_SUMMARY_MAX_LINES,
-                    modifier = GlanceModifier.defaultWeight(),
                 )
+                Spacer(GlanceModifier.height(4.dp))
+                // A widget cannot scroll a block of text, but it can scroll a list, so the
+                // story is broken into sentences and each one is a row. Whatever does not
+                // fit can now be reached by dragging the text, instead of being lost at the
+                // bottom edge of the card.
+                val passages = remember(story.id) { summaryPassages(story.widgetSummary()) }
+                LazyColumn(modifier = GlanceModifier.defaultWeight()) {
+                    items(passages.size) { index ->
+                        Text(
+                            text = passages[index],
+                            style = TextStyle(
+                                color = ColorProvider(palette.body),
+                                fontSize = type.body,
+                            ),
+                            maxLines = STACK_SUMMARY_MAX_LINES,
+                        )
+                    }
+                }
                 Spacer(GlanceModifier.height(8.dp))
             } else if (thumbnail == null && story.imageUrl == null) {
                 StoryTextBlock(
@@ -1675,6 +1693,31 @@ private fun NewsStory.widgetSourceLine(): String =
 
 private fun NewsStory.widgetCategory(): String? =
     topicLabels.take(2).joinToString(", ").takeIf { it.isNotBlank() }
+
+/**
+ * The story text cut into sentences, so the card can put each one in a scrolling list.
+ * A sentence longer than a few lines is split again on a space, because one enormous row
+ * would still be cut off at the bottom with no way to reach the rest.
+ */
+private fun summaryPassages(summary: String): List<String> {
+    val sentences = Regex("(?<=[.!?\u2026])\\s+").split(summary.trim()).filter { it.isNotBlank() }
+    return sentences.flatMap { sentence ->
+        if (sentence.length <= STACK_PASSAGE_MAX_CHARS) {
+            listOf(sentence)
+        } else {
+            val parts = mutableListOf<String>()
+            var rest = sentence
+            while (rest.length > STACK_PASSAGE_MAX_CHARS) {
+                val cut = rest.lastIndexOf(' ', STACK_PASSAGE_MAX_CHARS).takeIf { it > 0 }
+                    ?: STACK_PASSAGE_MAX_CHARS
+                parts += rest.substring(0, cut).trim()
+                rest = rest.substring(cut).trim()
+            }
+            if (rest.isNotBlank()) parts += rest
+            parts
+        }
+    }.ifEmpty { listOf(summary) }
+}
 
 private fun NewsStory.widgetSummary(): String =
     research?.takeIf { it.isNotBlank() }
