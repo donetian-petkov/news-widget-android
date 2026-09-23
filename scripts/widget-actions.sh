@@ -163,13 +163,17 @@ if tap "Save story" desc 3; then
   tap "Remove from library" desc 3 && wait_for "Save story" 20 && check "unsave a story" 0 || check "unsave a story" 1
 else check "save a story" 1 "no save button"; fi
 
-BEFORE_TEXT="$(widget | wc -c | tr -d ' ')"
+# Counting the widget's whole text will not do: an opened card pushes the cards below it
+# off the screen, so the total shrinks even when the card itself grew. Look instead for a
+# line of story text that was not on the screen before.
+widget | sed 's/ |.*//' | grep -v '^$' | sort -u > /tmp/ai-news-before.txt
 if tap "Show the whole story" desc 5; then
   reach "Show less" >/dev/null
-  AFTER_TEXT="$(widget | wc -c | tr -d ' ')"
-  [ "$AFTER_TEXT" -gt "$BEFORE_TEXT" ] \
-    && check "expanding a story shows more text" 0 "$BEFORE_TEXT -> $AFTER_TEXT chars" \
-    || check "expanding a story shows more text" 1 "$BEFORE_TEXT -> $AFTER_TEXT chars"
+  NEW_LINES="$(widget | sed 's/ |.*//' | grep -v '^$' | sort -u |
+    comm -13 /tmp/ai-news-before.txt - | awk 'length > 40' | wc -l | tr -d ' ')"
+  [ "$NEW_LINES" -gt 0 ] \
+    && check "expanding a story shows more text" 0 "$NEW_LINES new lines" \
+    || check "expanding a story shows more text" 1 "nothing new appeared"
   tap "Show less" desc 5 && check "collapse a story" 0 || check "collapse a story" 1
 else check "expanding a story shows more text" 1 "no expand button"; fi
 
