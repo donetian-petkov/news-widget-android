@@ -62,6 +62,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -846,6 +847,22 @@ private fun WidgetStoryRow(
             if (actionStyle == WidgetActionStyle.Compact) {
                 Spacer(GlanceModifier.height(6.dp))
                 Row(horizontalAlignment = Alignment.End, modifier = GlanceModifier.fillMaxWidth()) {
+                    // The way into the story's own page in the app. The list used to have no
+                    // such button at all, so the only thing a tap could do was leave for the
+                    // publisher's website.
+                    WidgetIconButton(
+                        iconRes = R.drawable.ic_summary,
+                        contentDescription = "Open the full story in the app",
+                        action = actionRunCallback<OpenStorySectionAction>(
+                            actionParametersOf(
+                                storyIdKey to story.id,
+                                storySectionKey to StoryDetailSection.Summary.name,
+                            ),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = palette.statusText,
+                        compact = true,
+                    )
                     WidgetIconButton(
                         iconRes = R.drawable.ic_bookmark,
                         contentDescription = if (story.isSaved) "Remove from library" else "Save story",
@@ -978,13 +995,51 @@ private fun StatusDot(
 }
 
 /**
+ * Every category the app can put on a story, each with a colour of its own. Before this the
+ * colour was picked by hashing the name into four, so two categories out of seven were always
+ * going to land on the same one and the colour stopped telling you anything.
+ */
+private val CATEGORY_ORDER = listOf(
+    "world",
+    "bulgaria",
+    "security",
+    "ai",
+    "policy",
+    "energy",
+    "economy",
+    "public health",
+)
+
+/**
  * The colour a story's category is drawn in. The same category always gets the same colour,
- * so the eye can tell world news from sport without reading a word.
+ * so the eye can tell world news from an energy story without reading a word. A label the
+ * app did not invent - one an AI pass added, say - falls back to a hash, which can share a
+ * colour with another such label but never steals one from the eight above.
  */
 private fun categoryColor(story: NewsStory, palette: WidgetPalette): Color {
-    val key = story.topicLabels.firstOrNull()?.takeIf { it.isNotBlank() } ?: story.source
-    val index = Math.floorMod(key.lowercase(Locale.getDefault()).hashCode(), palette.categoryColors.size)
-    return palette.categoryColors[index]
+    val key = (story.topicLabels.firstOrNull()?.takeIf { it.isNotBlank() } ?: story.source)
+        .lowercase(Locale.getDefault())
+    val colors = palette.categoryColors
+    val known = CATEGORY_ORDER.indexOf(key)
+    val index = if (known >= 0) known % colors.size else Math.floorMod(key.hashCode(), colors.size)
+    return colors[index]
+}
+
+/**
+ * Turns the theme's four accents into eight usable hues by rotating each one round the colour
+ * wheel, so the extra colours still belong to the theme the user picked rather than being
+ * four strangers bolted on.
+ */
+private fun categoryPalette(accents: List<Color>): List<Color> =
+    accents + accents.map { it.shiftHue(CATEGORY_HUE_STEP) }
+
+private const val CATEGORY_HUE_STEP = 40f
+
+private fun Color.shiftHue(degrees: Float): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(toArgb(), hsv)
+    hsv[0] = ((hsv[0] + degrees) % 360f + 360f) % 360f
+    return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
 @androidx.compose.runtime.Composable
@@ -1251,11 +1306,13 @@ private fun widgetPalette(
         warningPill = Color(palette.alertPanel),
         warningText = Color(palette.accentRose),
         feedLabel = Color(palette.textMuted),
-        categoryColors = listOf(
-            Color(palette.accentBlue),
-            Color(palette.accentCyan),
-            Color(palette.accentGold),
-            Color(palette.accentRose),
+        categoryColors = categoryPalette(
+            listOf(
+                Color(palette.accentBlue),
+                Color(palette.accentCyan),
+                Color(palette.accentGold),
+                Color(palette.accentRose),
+            ),
         ),
         pinPill = Color(palette.goldPanel),
         pinText = Color(palette.accentGold),
