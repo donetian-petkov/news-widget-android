@@ -235,13 +235,75 @@ private fun inferTopicLabels(text: String): List<String> {
     return labels.take(3).ifEmpty { listOf("World") }
 }
 
-private fun String.cleanHtml(): String =
-    replace(Regex("<[^>]*>"), " ")
-        .replace("&amp;", "&")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&nbsp;", " ")
-        .replace(Regex("\\s+"), " ")
+private fun String.cleanHtml(): String = cleanFeedText(this)
+
+/**
+ * Turns a feed's raw title or description into something a person can read.
+ *
+ * Feeds hand over three kinds of rubbish. Tags, which are dropped. Their own editing-system
+ * placeholders - `[[gallery]]`, `[[img:4956908]]` - which stand for a picture the feed did
+ * not send and which showed up on the widget as literal double brackets in the middle of a
+ * sentence. And character codes such as `&#8230;` or `&ndash;`, which were printed as-is
+ * because only four of them were ever translated.
+ */
+internal fun cleanFeedText(raw: String): String =
+    raw.replace(HTML_TAG, " ")
+        .replace(CMS_PLACEHOLDER, " ")
+        .decodeHtmlEntities()
+        // Some feeds encode their text twice, so a dash arrives as `&amp;ndash;` and one
+        // pass only gets it as far as `&ndash;`. The second pass finishes the job but
+        // leaves `&`, `<` and `>` alone, so no round of decoding can invent a tag.
+        .decodeHtmlEntities(keepMarkupCodes = true)
+        .replace(WHITESPACE, " ")
+        .trim()
+
+private val HTML_TAG = Regex("<[^>]*>")
+
+/** `[[gallery]]`, `[[img:4958201]]` and friends: a placeholder, never words to read. */
+private val CMS_PLACEHOLDER = Regex("""\[\[[^\[\]]{0,60}]]""")
+
+private val WHITESPACE = Regex("\\s+")
+
+private val HTML_ENTITY = Regex("""&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,15});""")
+
+private val NAMED_HTML_ENTITIES = mapOf(
+    "amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'",
+    "nbsp" to " ", "shy" to "", "zwnj" to "", "zwj" to "",
+    "ndash" to "\u2013", "mdash" to "\u2014", "hellip" to "\u2026",
+    "lsquo" to "\u2018", "rsquo" to "\u2019", "sbquo" to "\u201A",
+    "ldquo" to "\u201C", "rdquo" to "\u201D", "bdquo" to "\u201E",
+    "laquo" to "\u00AB", "raquo" to "\u00BB", "middot" to "\u00B7",
+    "bull" to "\u2022", "deg" to "\u00B0", "euro" to "\u20AC",
+    "pound" to "\u00A3", "times" to "\u00D7",
+)
+
+/**
+ * One pass, so a code that decodes into another code is left alone rather than decoded
+ * twice - `&amp;lt;` must come out as the text `&lt;`, not as a tag bracket.
+ */
+private fun String.decodeHtmlEntities(keepMarkupCodes: Boolean = false): String =
+    HTML_ENTITY.replace(this) { match ->
+        val body = match.groupValues[1]
+        val code = when {
+            body.startsWith("#x") || body.startsWith("#X") -> body.drop(2).toIntOrNull(16)
+            body.startsWith("#") -> body.drop(1).toIntOrNull()
+            else -> null
+        }
+        val decoded = when {
+            code != null && code in 1..0x10FFFF -> String(Character.toChars(code))
+            // Anything unrecognised stays as it was written: better a stray code than a
+            // silently mangled word.
+            else -> NAMED_HTML_ENTITIES[body.lowercase(Locale.ROOT)]
+        }
+        when {
+            decoded == null -> match.value
+            keepMarkupCodes && decoded in MARKUP_CHARACTERS -> match.value
+            else -> decoded
+        }
+    }
+
+/** `&`, `<` and `>`: the three whose decoding could turn text back into markup. */
+private val MARKUP_CHARACTERS = setOf("&", "<", ">")
 
 private fun String.extractFirstImageUrl(): String? =
     Regex("""<img[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
