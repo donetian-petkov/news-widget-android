@@ -1,6 +1,6 @@
-# AI News Android Widget
+# Signal Widgets for Android
 
-Native Android implementation of AI News with a real Android home-screen widget.
+Signal Widgets for Android is a native Android implementation of an AI news reader with a real Android home-screen widget.
 
 This repository is intended for the Pixel 9 on-device workflow described in
 [`docs/android-native-implementation-plan.md`](docs/android-native-implementation-plan.md).
