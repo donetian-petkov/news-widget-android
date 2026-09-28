@@ -21,6 +21,25 @@ Left: the list, with the page counter, the unread filter, mark-all-read and
 settings along the bottom. Middle: a card opened up, so a long headline is not
 cut off. Right: stack mode, one story at a time with its own row of actions.
 
+### In motion
+
+| Scrolling the list | Paging ten at a time | Opening a story up |
+| --- | --- | --- |
+| ![Scrolling the widget list](docs/images/widget-scroll.gif) | ![Loading the next ten stories and jumping back](docs/images/widget-paging.gif) | ![Expanding and collapsing a card](docs/images/widget-expand.gif) |
+
+| Stack mode | Unread only |
+| --- | --- |
+| ![Stepping through stories in stack mode](docs/images/widget-stack.gif) | ![Turning the unread filter on and off](docs/images/widget-unread.gif) |
+
+### The app
+
+| The feed | A story | A quick tour |
+| --- | --- | --- |
+| ![The app's feed](docs/images/app-feed.png) | ![A story opened in the app](docs/images/app-story.png) | ![Scrolling the feed and opening a story](docs/images/app-tour.gif) |
+
+To take these again, run `scripts/widget-clean-install.sh`, then
+`scripts/capture-media.sh`.
+
 ## Goal
 
 - Build a native Android app, not a web wrapper.
