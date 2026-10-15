@@ -38,6 +38,10 @@ object NewsRepository {
     private lateinit var fetchHistoryDao: FetchHistoryDao
     private lateinit var runtimePreferences: RuntimePreferences
     private lateinit var secureProviderKeyStore: SecureProviderKeyStore
+    private lateinit var briefingStore: BriefingStore
+
+    /** AI ratings per story, so the daily briefing and repeat runs do not pay for them again. */
+    private val briefingAiRatings = java.util.concurrent.ConcurrentHashMap<String, AiStoryRating>()
     private val refreshLock = java.util.concurrent.Semaphore(1)
     private val rssFeedFetcher = RssFeedFetcher()
     private val remoteBackendClient = RemoteBackendClient()
@@ -121,6 +125,8 @@ object NewsRepository {
         fetchHistoryDao = database.fetchHistoryDao()
         runtimePreferences = RuntimePreferences(appContext)
         secureProviderKeyStore = SecureProviderKeyStore(appContext)
+        briefingStore = BriefingStore(java.io.File(appContext.filesDir, "briefings"))
+        _state.update { it.copy(briefings = briefingStore.list()) }
 
         // AI may have been left on from a previous run; make sure it is counting down.
         repositoryScope.launch {
@@ -1268,6 +1274,145 @@ object NewsRepository {
         return digest
     }
 
+    /**
+     * Writes a briefing of the stories published in the last hour or day, for the given
+     * widget feeds (empty means every feed), saves it and returns its record. The AI rates
+     * and groups the stories when it is on, there is a key and the daily budget allows;
+     * otherwise keyword rules do the rating.
+     */
+    suspend fun writeBriefing(
+        period: BriefingPeriod,
+        feedSourceIds: Set<String> = emptySet(),
+        window: BriefingWindow? = null,
+        scheduled: Boolean = false,
+    ): BriefingRecord? = withContext(Dispatchers.IO) {
+        val current = _state.value
+        val settings = current.settings
+        val now = System.currentTimeMillis()
+        val showFiltered = WIDGET_FILTERED_FEED in feedSourceIds
+        val selectedFeeds = current.feedSources.filter { it.id in feedSourceIds }
+        val selectedTitles = selectedFeeds.map { it.title }.toSet()
+        val scope = when {
+            showFiltered -> "Filtered Feed"
+            selectedFeeds.isEmpty() -> "All Feeds"
+            selectedFeeds.size == 1 -> selectedFeeds.single().title
+            else -> "${selectedFeeds.size} Feeds"
+        }
+        val stories = current.stories
+            .filterNot { it.isHidden }
+            .filter { story ->
+                if (showFiltered) KeywordMatcher.matches(settings.keywords, story)
+                else selectedTitles.isEmpty() || story.source in selectedTitles
+            }
+        val briefingStories = stories.map { story ->
+            BriefingStory(
+                id = story.id,
+                title = story.displayTitleForDigest(),
+                link = story.sourceUrl,
+                source = story.source,
+                publishedAt = story.publishedAt,
+                summary = story.summary,
+                coverUrl = story.imageUrl,
+            )
+        }
+        // The feeds are mostly Bulgarian; write the AI text in the language of the headlines.
+        val bulgarian = briefingStories.count { CYRILLIC.containsMatchIn(it.title) } * 2 > briefingStories.size
+        val region = if (bulgarian) "Bulgaria" else ""
+
+        val apiKey = secureProviderKeyStore.load()
+        val today = LocalDate.now().toString()
+        val runtime = current.runtime.resetAiBudgetIfNeeded(today)
+        val aiAllowed = current.runtime.runtimeEnabled && current.runtime.aiEnabled &&
+            settings.aiProvider == AiProvider.OpenAI && !apiKey.isNullOrBlank()
+        // The hourly run leaves half the day's budget for the reader's own AI actions.
+        val budgetCeiling = if (scheduled) settings.aiDailyBudgetCents / 2 else settings.aiDailyBudgetCents
+        val spentCents = java.util.concurrent.atomic.AtomicInteger(0)
+        fun budgetLeft() = runtime.aiBudgetSpentCents + spentCents.get() + OPENAI_ACTION_ESTIMATE_CENTS <= budgetCeiling
+        val pausedSources = current.feedSources.filterNot { it.aiEnabled }.map { it.title }.toSet()
+        val sourceById = briefingStories.associate { it.id to it.source }
+
+        suspend fun complete(action: String, detail: String, prompt: String): String {
+            check(budgetLeft()) { "AI budget reached" }
+            spentCents.addAndGet(OPENAI_ACTION_ESTIMATE_CENTS)
+            val completion = aiEnrichmentClient.completeWithOpenAi(apiKey!!, prompt)
+            recordUsage(action, "openai", detail, OPENAI_ACTION_ESTIMATE_CENTS, completion.usage.total)
+            return completion.text
+        }
+
+        val rateWithAi: (suspend (List<AiRatingCandidate>) -> List<AiStoryRating>)? = if (!aiAllowed) null else { candidates ->
+            val allowed = candidates.filter { sourceById[it.id] !in pausedSources }
+            val cached = allowed.mapNotNull { briefingAiRatings[it.id] }
+            val missing = allowed.filterNot { briefingAiRatings.containsKey(it.id) }
+            if (missing.isEmpty()) {
+                cached
+            } else {
+                val text = complete("Briefing rating", "${missing.size} stories", BriefingEngine.buildAiRatingPrompt(missing, bulgarian, region))
+                val fresh = BriefingEngine.parseAiRatings(text)
+                check(fresh.isNotEmpty()) { "AI returned no ratings" }
+                if (briefingAiRatings.size > 3000) briefingAiRatings.clear()
+                fresh.forEach { briefingAiRatings[it.id] = it }
+                cached + fresh
+            }
+        }
+        val groupWithAi: (suspend (List<GroupingItem>) -> StoryGrouping)? = if (!aiAllowed) null else { items ->
+            BriefingEngine.parseGrouping(complete("Briefing grouping", "${items.size} stories", BriefingEngine.buildGroupingPrompt(items, bulgarian)))
+        }
+
+        val briefing = runCatching {
+            BriefingEngine.build(
+                stories = briefingStories,
+                options = BriefingOptions(
+                    period = period,
+                    scope = scope,
+                    window = window ?: BriefingEngine.rollingWindow(period, now),
+                    trackedTerms = settings.keywords,
+                    localTerms = if (bulgarian) listOf("bulgaria", "българ") else emptyList(),
+                    region = region,
+                    scheduled = scheduled,
+                    generatedAtMs = now,
+                ),
+                template = appContext.assets.open("briefing/page.html").bufferedReader().use { it.readText() },
+                rateWithAi = rateWithAi,
+                groupWithAi = groupWithAi,
+            )
+        }.getOrElse { error ->
+            _state.update { it.copy(message = "Briefing failed: ${error.message}") }
+            return@withContext null
+        }
+
+        if (spentCents.get() > 0) {
+            val updatedRuntime = runtime.copy(
+                aiBudgetSpentCents = runtime.aiBudgetSpentCents + spentCents.get(),
+                aiBudgetDay = today,
+                lastAiJobAt = System.currentTimeMillis(),
+            )
+            persistRuntime(updatedRuntime)
+            _state.update { it.copy(runtime = updatedRuntime) }
+        }
+        // Quiet hours produce nothing worth keeping from the hourly run.
+        if (scheduled && briefing.record.itemCount == 0) return@withContext null
+        briefingStore.save(briefing)
+        _state.update { it.copy(briefings = briefingStore.list(), message = "Briefing ready") }
+        briefing.record
+    }
+
+    /** The briefing for the last full clock hour, written once by the hourly worker. */
+    suspend fun writeScheduledHourlyBriefing() {
+        if (!_state.value.runtime.runtimeEnabled) return
+        val window = BriefingEngine.previousHourWindow(System.currentTimeMillis())
+        if (briefingStore.hasScheduledWindow(window.startMs)) return
+        writeBriefing(BriefingPeriod.Hour, window = window, scheduled = true)
+    }
+
+    fun briefingHtml(briefingId: String): String? = briefingStore.readHtml(briefingId)
+
+    fun latestBriefing(): BriefingRecord? = briefingStore.latest()
+
+    fun deleteBriefing(briefingId: String) {
+        briefingStore.delete(briefingId)
+        _state.update { it.copy(briefings = briefingStore.list(), message = "Briefing removed") }
+    }
+
     fun deleteDigest(digestId: String) {
         _state.update { current ->
             val digests = current.digests.filterNot { it.id == digestId }
@@ -1487,5 +1632,6 @@ object NewsRepository {
     private const val AI_SESSION_MILLIS = 6L * 60 * 60 * 1000
     private const val OPENAI_ENRICHMENT_ESTIMATE_CENTS = 2
     private const val OPENAI_ACTION_ESTIMATE_CENTS = 1
+    private val CYRILLIC = Regex("\\p{IsCyrillic}")
     private const val HISTORY_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000
 }

@@ -29,6 +29,7 @@ import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.CircularProgressIndicator
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.state.PreferencesGlanceStateDefinition
@@ -67,6 +68,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ainews.android.BriefingActivity
 import com.ainews.android.MainActivity
 import com.ainews.android.R
 import com.ainews.android.data.BackendMode
@@ -652,6 +654,16 @@ class NewsWidget : GlanceAppWidget() {
                             iconRes = R.drawable.ic_done_all,
                             contentDescription = "Mark everything read",
                             action = actionRunCallback<MarkAllReadAction>(actionParametersOf(appWidgetIdKey to appWidgetId)),
+                            backgroundRes = flatButtonBackground,
+                            tint = palette.muted,
+                            compact = true,
+                        )
+                        WidgetIconButton(
+                            iconRes = R.drawable.ic_briefing,
+                            contentDescription = "Hourly or daily briefing for $widgetFeedTitle",
+                            action = actionStartActivity(
+                                BriefingActivity.forWidget(context, appWidgetId, selectedFeedIds, widgetFeedTitle),
+                            ),
                             backgroundRes = flatButtonBackground,
                             tint = palette.muted,
                             compact = true,

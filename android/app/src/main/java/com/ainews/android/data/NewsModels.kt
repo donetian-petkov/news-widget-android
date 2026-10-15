@@ -315,6 +315,7 @@ data class NewsUiState(
     val searchQuery: String = "",
     val fetchHistory: List<FeedFetchRecord> = emptyList(),
     val digests: List<DigestEntry> = emptyList(),
+    val briefings: List<BriefingRecord> = emptyList(),
     val usageRecords: List<AiUsageRecord> = emptyList(),
     val schedules: List<NewsSchedule> = emptyList(),
     val message: String? = null,

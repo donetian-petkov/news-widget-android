@@ -76,6 +76,13 @@ Implemented so far:
 - OPML import and export for the feed list.
 - Daily digests with a notification, plus user-defined schedules for refresh,
   monitor scans, and digests.
+- Hourly and daily briefings, the same as the Mac widget's: the stories of the
+  last hour or day rated 0-3 on severity, scale, urgency, interest, coverage and
+  relevance, each with the fact behind it, plus their economic, political,
+  social and security impact. Duplicate reports fold under one story, related
+  events group into storylines, and sliders on the page set what counts most.
+  One is written a minute past every hour; the widget's briefing button writes
+  one for that widget's feeds, and the drawer lists them all.
 - AI usage totals by action, pending-story count, and a reset.
 
 ## Build

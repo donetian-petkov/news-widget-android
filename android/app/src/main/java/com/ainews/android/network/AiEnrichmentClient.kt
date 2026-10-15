@@ -20,6 +20,11 @@ data class StoryEnrichment(
     val topicLabels: List<String>,
 )
 
+data class AiCompletion(
+    val text: String,
+    val usage: TokenUsage,
+)
+
 class AiEnrichmentClient {
     fun enrichWithOpenAi(apiKey: String, story: NewsStory): StoryEnrichment {
         val input = """
@@ -99,6 +104,38 @@ class AiEnrichmentClient {
         val json = JSONObject(responseText)
         lastTokenUsage = json.readUsage()
         return json.optString("output_text").trim().ifBlank { json.firstOutputText() }
+    }
+
+    /**
+     * Sends a whole prompt and returns the answer text, for briefings, which rate and group
+     * many stories in one request. Those answers are long, so the read timeout is too.
+     * Several run at once, so the token counts come back with the answer instead of
+     * through [lastTokenUsage].
+     */
+    fun completeWithOpenAi(apiKey: String, input: String): AiCompletion {
+        val body = JSONObject()
+            .put("model", "gpt-5")
+            .put("input", input)
+            .put("reasoning", JSONObject().put("effort", "low"))
+            .toString()
+
+        val connection = (URL("https://api.openai.com/v1/responses").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 12_000
+            readTimeout = 120_000
+            requestMethod = "POST"
+            doOutput = true
+            setRequestProperty("Authorization", "Bearer $apiKey")
+            setRequestProperty("Content-Type", "application/json")
+        }
+
+        connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        connection.failIfRefused()
+        val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+        val json = JSONObject(responseText)
+        return AiCompletion(
+            text = json.optString("output_text").trim().ifBlank { json.firstOutputText() },
+            usage = json.readUsage(),
+        )
     }
 
     /**

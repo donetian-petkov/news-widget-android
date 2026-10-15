@@ -33,6 +33,13 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <activity
+            android:name=".BriefingActivity"
+            android:exported="false"
+            android:label="Briefing"
+            android:taskAffinity=""
+            android:excludeFromRecents="true" />
+
         <receiver
             android:name=".worker.RefreshAlarmReceiver"
             android:exported="false" />

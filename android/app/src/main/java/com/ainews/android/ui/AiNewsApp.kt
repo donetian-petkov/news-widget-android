@@ -95,10 +95,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
+import com.ainews.android.BriefingActivity
 import com.ainews.android.R
 import com.ainews.android.data.AiProvider
 import com.ainews.android.data.BackendMode
 import com.ainews.android.data.DigestEntry
+import com.ainews.android.data.BriefingPeriod
+import com.ainews.android.data.BriefingRecord
 import com.ainews.android.data.FeedFetchRecord
 import com.ainews.android.data.FeedHealth
 import com.ainews.android.data.FeedSource
@@ -396,6 +399,20 @@ fun AiNewsApp() {
                         onDeleteDigest = NewsRepository::deleteDigest,
                     )
 
+                    AppScreen.Briefings -> BriefingsScreen(
+                        briefings = state.briefings,
+                        onBack = { screen = AppScreen.Feed },
+                        onWrite = { period ->
+                            scope.launch {
+                                NewsRepository.writeBriefing(period)?.let { record ->
+                                    context.startActivity(BriefingActivity.openSaved(context, record.id))
+                                }
+                            }
+                        },
+                        onOpen = { record -> context.startActivity(BriefingActivity.openSaved(context, record.id)) },
+                        onDelete = NewsRepository::deleteBriefing,
+                    )
+
                     AppScreen.Schedules -> ScheduleScreen(
                         schedules = state.schedules,
                         onBack = { screen = AppScreen.Feed },
@@ -496,6 +513,7 @@ private enum class AppScreen {
     Sources,
     Usage,
     Digests,
+    Briefings,
     Schedules,
 }
 
@@ -1071,6 +1089,7 @@ private fun AppDrawer(
             DrawerSection("Alerts and automation")
             DrawerDestination("Monitors", AppScreen.Monitors, current, onNavigate, "${state.monitors.size}")
             DrawerDestination("Digests", AppScreen.Digests, current, onNavigate, "${state.digests.size}")
+            DrawerDestination("Briefings", AppScreen.Briefings, current, onNavigate, "${state.briefings.size}")
             DrawerDestination(
                 "Schedules",
                 AppScreen.Schedules,
@@ -3284,6 +3303,81 @@ private fun UsageScreen(
             item {
                 Text(
                     text = "No AI requests recorded yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BriefingsScreen(
+    briefings: List<BriefingRecord>,
+    onBack: () -> Unit,
+    onWrite: (BriefingPeriod) -> Unit,
+    onOpen: (BriefingRecord) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    var writing by remember { mutableStateOf(false) }
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(18.dp),
+    ) {
+        item {
+            ScreenHeader(
+                title = "Briefings",
+                subtitle = "${briefings.size} saved briefings",
+                onBack = onBack,
+            )
+        }
+
+        item {
+            SettingsSection("Write a briefing") {
+                Text(
+                    text = "The stories of the last hour or day, rated by how much they matter, with the reason for " +
+                        "each score and their economic, political, social and security impact. One is also written " +
+                        "a minute past every hour. A widget's briefing button covers just that widget's feeds.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(enabled = !writing, onClick = { writing = true; onWrite(BriefingPeriod.Hour) }) {
+                        Text("Hourly")
+                    }
+                    Button(enabled = !writing, onClick = { writing = true; onWrite(BriefingPeriod.Day) }) {
+                        Text("Daily")
+                    }
+                }
+            }
+        }
+
+        items(briefings, key = { it.id }) { briefing ->
+            InfoCard {
+                Text(briefing.title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    text = "${briefing.itemCount} stories · ${formatStoryTime(briefing.generatedAtMs)}" +
+                        if (briefing.scheduled) " · written on the hour" else "",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row {
+                    TextButton(onClick = { onOpen(briefing) }) {
+                        Text("Open")
+                    }
+                    TextButton(onClick = { onDelete(briefing.id) }) {
+                        Text("Delete")
+                    }
+                }
+            }
+        }
+
+        if (briefings.isEmpty()) {
+            item {
+                Text(
+                    text = "No briefings yet.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
