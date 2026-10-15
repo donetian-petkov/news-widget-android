@@ -9,6 +9,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -35,14 +36,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.FileProvider
+import com.ainews.android.data.BriefingEngine
+import com.ainews.android.data.BriefingPageReader
 import com.ainews.android.data.BriefingPeriod
+import com.ainews.android.data.Criterion
 import com.ainews.android.data.NewsRepository
+import com.ainews.android.ui.BriefingScreen
+import java.io.File
 import kotlinx.coroutines.launch
 
 /**
- * Shows a briefing page, or, opened from a widget, offers an hourly or daily briefing for
- * that widget's feeds and writes the one picked. The page is the same HTML the Mac widget
- * opens in the browser, sliders included.
+ * Shows a briefing as a native screen, or, opened from a widget, offers an hourly or daily
+ * briefing for that widget's feeds and writes the one picked. The same briefing also opens
+ * as the interactive web page the Mac widget uses, in the browser.
  */
 class BriefingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,7 +70,10 @@ class BriefingActivity : ComponentActivity() {
 
     @Composable
     private fun BriefingContent(initialId: String?, feedSourceIds: Set<String>, scopeLabel: String) {
+        var briefingId by remember { mutableStateOf(initialId) }
         var html by remember { mutableStateOf(initialId?.let(NewsRepository::briefingHtml)) }
+        var showWebPage by remember { mutableStateOf(false) }
+        var weights by remember { mutableStateOf(loadWeights()) }
         var working by remember { mutableStateOf(false) }
         var failed by remember { mutableStateOf<String?>(null) }
         val scope = rememberCoroutineScope()
@@ -73,15 +83,32 @@ class BriefingActivity : ComponentActivity() {
             failed = null
             scope.launch {
                 val record = NewsRepository.writeBriefing(period, feedSourceIds)
+                briefingId = record?.id
                 html = record?.id?.let(NewsRepository::briefingHtml)
                 if (html == null) failed = NewsRepository.state.value.message ?: "The briefing could not be written."
                 working = false
             }
         }
 
-        val page = html
+        val pageHtml = html
+        val page = remember(pageHtml) { pageHtml?.let(BriefingPageReader::parse) }
+        BackHandler(enabled = showWebPage && page != null) { showWebPage = false }
         when {
-            page != null -> BriefingPage(page)
+            pageHtml != null && (showWebPage || page == null) -> BriefingPage(pageHtml)
+            page != null -> BriefingScreen(
+                page = page,
+                weights = weights,
+                onWeightsChange = { changed ->
+                    weights = changed
+                    saveWeights(changed)
+                },
+                onBack = { finish() },
+                onOpenInBrowser = {
+                    // The interactive page in the browser; without one, the same page in the app.
+                    if (briefingId?.let(::openPageInBrowser) != true) showWebPage = true
+                },
+                onOpenLink = { link -> openInBrowser(this@BriefingActivity, Uri.parse(link)) },
+            )
             working -> Column(
                 modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
                 verticalArrangement = Arrangement.Center,
@@ -113,7 +140,10 @@ class BriefingActivity : ComponentActivity() {
                 }
                 NewsRepository.latestBriefing()?.let { latest ->
                     OutlinedButton(
-                        onClick = { html = NewsRepository.briefingHtml(latest.id) },
+                        onClick = {
+                            briefingId = latest.id
+                            html = NewsRepository.briefingHtml(latest.id)
+                        },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Latest saved briefing")
@@ -154,11 +184,36 @@ class BriefingActivity : ComponentActivity() {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url)) }
     }
 
+    /** Hands the saved page to the browser through a read-only content link. */
+    private fun openPageInBrowser(briefingId: String): Boolean = runCatching {
+        val file = File(File(filesDir, "briefings"), "$briefingId.html")
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, "text/html")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        startActivity(intent)
+    }.isSuccess
+
+    /** The reader's slider settings, kept for every briefing. */
+    private fun loadWeights(): Map<Criterion, Double> {
+        val prefs = getSharedPreferences(WEIGHTS_PREFS, MODE_PRIVATE)
+        return Criterion.entries.associateWith { criterion ->
+            prefs.getFloat(criterion.key, (BriefingEngine.DEFAULT_WEIGHTS[criterion] ?: 0.0).toFloat()).toDouble()
+        }
+    }
+
+    private fun saveWeights(weights: Map<Criterion, Double>) {
+        getSharedPreferences(WEIGHTS_PREFS, MODE_PRIVATE).edit().apply {
+            weights.forEach { (criterion, value) -> putFloat(criterion.key, value.toFloat()) }
+        }.apply()
+    }
+
     companion object {
         const val EXTRA_BRIEFING_ID = "com.ainews.android.extra.BRIEFING_ID"
         const val EXTRA_FEED_IDS = "com.ainews.android.extra.BRIEFING_FEED_IDS"
         const val EXTRA_SCOPE_LABEL = "com.ainews.android.extra.BRIEFING_SCOPE"
         private const val PAGE_ORIGIN = "https://briefing.ainews.local/"
+        private const val WEIGHTS_PREFS = "briefing-weights"
 
         fun openSaved(context: Context, briefingId: String): Intent =
             Intent(context, BriefingActivity::class.java)

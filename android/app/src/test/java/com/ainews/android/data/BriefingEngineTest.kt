@@ -234,6 +234,48 @@ class BriefingEngineTest {
     }
 
     @Test
+    fun readsASavedPageBackAndRanksItWithTheReadersWeights() = runBlocking {
+        val briefing = BriefingEngine.build(
+            stories = listOf(
+                story(id = "drone", title = "Drone strike in the Black Sea"),
+                story(id = "command", title = "Romania offers joint naval command"),
+                story(id = "fish", title = "Scientists discover a record deep sea fish"),
+            ),
+            options = BriefingOptions(BriefingPeriod.Hour, "All & more", hour),
+            template = template,
+            rateWithAi = { candidates ->
+                candidates.map {
+                    val drone = it.id == "drone"
+                    AiStoryRating(
+                        it.id,
+                        scores(Criterion.Severity to if (drone) 3 else 1, Criterion.Interest to if (it.id == "fish") 3 else 0),
+                        mapOf(Criterion.Severity to "fact ${it.id}"),
+                        if (it.id == "fish") ImpactDimension.Environment else ImpactDimension.Security,
+                        mapOf(ImpactAngle.Economic to "money ${it.id}"),
+                    )
+                }
+            },
+            groupWithAi = { StoryGrouping(storylines = mapOf("drone" to "Black Sea", "command" to "Black Sea")) },
+        )
+        val page = BriefingPageReader.parse(briefing.html)!!
+        assertTrue(page.title.startsWith("Hourly briefing · All & more"))
+        assertTrue(page.aiRan)
+        assertEquals("fact drone", page.stories.first { it.title.startsWith("Drone") }.notes[Criterion.Severity])
+
+        val balanced = BriefingPageReader.rank(page, BriefingEngine.DEFAULT_WEIGHTS)
+        assertEquals("Black Sea", balanced.shown.first().label)
+        assertEquals(2, balanced.shown.first().entries.size)
+
+        val interesting = BriefingPageReader.rank(page, BriefingPageReader.presets.first { it.first == "Interesting" }.second)
+        assertEquals("Scientists discover a record deep sea fish", interesting.shown.first().lead.story.title)
+
+        val lead = balanced.shown.first().lead
+        val shares = BriefingPageReader.shares(lead.story.scores, BriefingEngine.DEFAULT_WEIGHTS, lead.score)
+        assertTrue(kotlin.math.abs(shares.values.sum() - lead.score) <= 1)
+        assertNull(BriefingPageReader.parse("<html>no data</html>"))
+    }
+
+    @Test
     fun storeSavesReloadsReplacesAScheduledHourAndPrunes() = runBlocking {
         val dir = Files.createTempDirectory("briefings").toFile()
         val store = BriefingStore(dir, keep = 2)

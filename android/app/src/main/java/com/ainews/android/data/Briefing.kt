@@ -887,3 +887,164 @@ object BriefingEngine {
         return Briefing(record, renderHtml(template, title, merged, limit, inWindow.size, options.generatedAtMs, aiRan))
     }
 }
+
+// ---- reading a saved briefing back for the in-app screen ----
+
+data class PageRelated(val title: String, val source: String, val time: String, val link: String)
+
+/** One story as the saved page holds it. */
+data class PageStory(
+    val title: String,
+    val link: String,
+    val source: String,
+    val time: String,
+    val publishedMs: Long,
+    val summary: String,
+    val coverUrl: String,
+    val dimension: ImpactDimension,
+    val scores: Map<Criterion, Int>,
+    val notes: Map<Criterion, String>,
+    val impacts: Map<ImpactAngle, String>,
+    val whyItMatters: String,
+    val ratedByAi: Boolean,
+    val storyline: String,
+    val related: List<PageRelated>,
+)
+
+data class BriefingPage(
+    val title: String,
+    val storyCount: Int,
+    val limit: Int,
+    val aiRan: Boolean,
+    val stories: List<PageStory>,
+)
+
+data class RankedStory(val story: PageStory, val score: Int, val level: PriorityLevel)
+
+/** One story, or a storyline: several different stories about one ongoing situation. */
+data class BriefingUnit(val label: String, val entries: List<RankedStory>) {
+    val lead: RankedStory get() = entries.first()
+}
+
+data class RankedBriefing(val shown: List<BriefingUnit>, val more: List<BriefingUnit>)
+
+object BriefingPageReader {
+    val presets: List<Pair<String, Map<Criterion, Double>>> = listOf(
+        "Balanced" to BriefingEngine.DEFAULT_WEIGHTS,
+        "Critical first" to weights(5.0, 3.0, 3.0, 0.5, 2.0, 1.0),
+        "Interesting" to weights(1.0, 1.0, 0.5, 5.0, 1.0, 2.0),
+        "Close to home" to weights(2.0, 1.0, 1.5, 1.5, 1.0, 5.0),
+    )
+
+    private fun weights(vararg values: Double): Map<Criterion, Double> = Criterion.entries.zip(values.toList()).toMap()
+
+    /** Reads the data the page carries for its own script, so old and new briefings both open. */
+    fun parse(html: String): BriefingPage? {
+        val json = html.substringAfter("<script id=\"briefing-data\" type=\"application/json\">", "")
+            .substringBefore("</script>", "")
+            .takeIf { it.isNotBlank() }
+            ?.let { runCatching { JSONObject(it) }.getOrNull() }
+            ?: return null
+        val title = html.substringAfter("<title>", "").substringBefore("</title>", "")
+            .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
+        val stories = json.optJSONArray("stories") ?: JSONArray()
+        return BriefingPage(
+            title = title,
+            storyCount = json.optInt("storyCount"),
+            limit = json.optInt("limit", 12),
+            aiRan = json.optBoolean("aiRan"),
+            stories = (0 until stories.length()).mapNotNull { stories.optJSONObject(it)?.let(::pageStory) },
+        )
+    }
+
+    private fun pageStory(json: JSONObject): PageStory {
+        val scores = json.optJSONObject("scores")
+        val notes = json.optJSONObject("notes")
+        val impacts = json.optJSONObject("impacts")
+        val related = json.optJSONArray("related") ?: JSONArray()
+        return PageStory(
+            title = json.optString("title"),
+            link = json.optString("link"),
+            source = json.optString("source"),
+            time = json.optString("time"),
+            publishedMs = json.optLong("publishedMs"),
+            summary = json.optString("summary"),
+            coverUrl = json.optString("coverUrl"),
+            dimension = ImpactDimension.fromKey(json.optString("dimension")),
+            scores = Criterion.entries.associateWith { (scores?.optInt(it.key) ?: 0).coerceIn(0, 3) },
+            notes = Criterion.entries.mapNotNull { key -> notes?.optString(key.key)?.takeIf { it.isNotBlank() }?.let { key to it } }.toMap(),
+            impacts = ImpactAngle.entries.mapNotNull { angle -> impacts?.optString(angle.key)?.takeIf { it.isNotBlank() }?.let { angle to it } }.toMap(),
+            whyItMatters = json.optString("whyItMatters"),
+            ratedByAi = json.optString("ratedBy") == "ai",
+            storyline = json.optString("storyline"),
+            related = (0 until related.length()).mapNotNull { index ->
+                related.optJSONObject(index)?.let {
+                    PageRelated(it.optString("title"), it.optString("source"), it.optString("time"), it.optString("link"))
+                }
+            },
+        )
+    }
+
+    /** Each criterion's share of [score], in proportion to how hard it pushed the story up. */
+    fun shares(scores: Map<Criterion, Int>, weights: Map<Criterion, Double>, score: Int): Map<Criterion, Int> {
+        val heaviest = Criterion.entries.maxOf { (weights[it] ?: 0.0).coerceAtLeast(0.0) }
+        val lifts = Criterion.entries.associateWith { key ->
+            if (heaviest <= 0.0) 0.0
+            else (weights[key] ?: 0.0).coerceAtLeast(0.0) / heaviest * (scores[key] ?: 0) / 3.0 * BriefingEngine.SINGLE_CRITERION_STRENGTH
+        }
+        val total = lifts.values.sum()
+        return lifts.mapValues { (_, lift) -> if (total > 0) (score * lift / total).roundToInt() else 0 }
+    }
+
+    /**
+     * Ranks the stories with the reader's weights, the way the page's own script does:
+     * stories the AI never checked stay below High, storylines rank by their strongest
+     * story, and no area takes more than about a third of what is shown.
+     */
+    fun rank(page: BriefingPage, weights: Map<Criterion, Double>): RankedBriefing {
+        val ranked = page.stories.map { story ->
+            val raw = BriefingEngine.scoreOf(story.scores, weights)
+            val score = if (page.aiRan && !story.ratedByAi) minOf(raw, BriefingEngine.UNCHECKED_SCORE_CAP) else raw
+            RankedStory(story, score, BriefingEngine.levelOf(score))
+        }.sortedWith(compareByDescending<RankedStory> { it.score }.thenByDescending { it.story.publishedMs })
+
+        // Plain classes, compared by identity: a unit's list grows while it is being built.
+        class Builder(val label: String, val entries: MutableList<RankedStory>)
+        val units = mutableListOf<Builder>()
+        val byLine = mutableMapOf<String, Builder>()
+        for (entry in ranked) {
+            val key = entry.story.storyline.trim().lowercase(Locale.ROOT)
+            val existing = if (key.isNotEmpty()) byLine[key] else null
+            if (existing != null) {
+                existing.entries.add(entry)
+                continue
+            }
+            val unit = Builder(entry.story.storyline, mutableListOf(entry))
+            if (key.isNotEmpty()) byLine[key] = unit
+            units.add(unit)
+        }
+
+        val cap = maxOf(2, ceil(page.limit * 0.3).toInt())
+        val picked = mutableListOf<Builder>()
+        val overflow = mutableListOf<Builder>()
+        val perDimension = mutableMapOf<ImpactDimension, Int>()
+        for (unit in units) {
+            if (picked.size >= page.limit) break
+            val dimension = unit.entries.first().story.dimension
+            if ((perDimension[dimension] ?: 0) >= cap) {
+                overflow.add(unit)
+                continue
+            }
+            perDimension[dimension] = (perDimension[dimension] ?: 0) + 1
+            picked.add(unit)
+        }
+        while (picked.size < page.limit && overflow.isNotEmpty()) picked.add(overflow.removeAt(0))
+        val pickedSet = picked.toHashSet()
+        fun toUnit(unit: Builder) = BriefingUnit(if (unit.entries.size > 1) unit.label else "", unit.entries.toList())
+        val byLead = compareByDescending<BriefingUnit> { it.lead.score }.thenByDescending { it.lead.story.publishedMs }
+        return RankedBriefing(
+            shown = picked.map(::toUnit).sortedWith(byLead),
+            more = units.filter { it !in pickedSet }.map(::toUnit),
+        )
+    }
+}
