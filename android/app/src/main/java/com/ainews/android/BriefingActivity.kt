@@ -23,7 +23,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -45,7 +44,7 @@ import com.ainews.android.data.BriefingPeriod
 import com.ainews.android.data.Criterion
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.ui.BriefingScreen
-import com.ainews.android.ui.CustomBriefingPeriod
+import com.ainews.android.ui.BriefingForm
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -126,32 +125,15 @@ class BriefingActivity : ComponentActivity() {
             }
             else -> Column(
                 modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
             ) {
-                Text("Briefing for $scopeLabel", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    text = "Stories rated by how much they matter, with the reason for each score, " +
-                        "their economic, political, social and security impact, and sliders to set what counts most.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text("Write a briefing", style = MaterialTheme.typography.titleLarge)
+                // A widget showing every feed has nothing to choose between.
+                BriefingForm(
+                    scopeLabel = scopeLabel.takeIf { feedSourceIds.isNotEmpty() },
+                    enabled = !working,
+                    onWrite = { period, hours, allFeeds -> write(period, if (allFeeds) emptySet() else feedSourceIds, hours) },
                 )
-                Button(onClick = { write(BriefingPeriod.Hour) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Hourly briefing")
-                }
-                Button(onClick = { write(BriefingPeriod.Day) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Daily briefing")
-                }
-                Button(onClick = { write(BriefingPeriod.Week) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Weekly briefing")
-                }
-                Button(onClick = { write(BriefingPeriod.Month) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Monthly briefing")
-                }
-                CustomBriefingPeriod(enabled = true, scope = scopeLabel) { hours -> write(BriefingPeriod.Custom, customHours = hours) }
-                // Written now for every feed, never an old saved one.
-                OutlinedButton(onClick = { write(BriefingPeriod.Hour, emptySet()) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Hourly briefing · All feeds")
-                }
                 failed?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }

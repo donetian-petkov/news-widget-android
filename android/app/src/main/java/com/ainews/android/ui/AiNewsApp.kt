@@ -405,10 +405,8 @@ fun AiNewsApp() {
                         briefings = state.briefings,
                         onBack = { screen = AppScreen.Feed },
                         onWrite = { period, hours ->
-                            scope.launch {
-                                NewsRepository.writeBriefing(period, customHours = hours)?.let { record ->
-                                    context.startActivity(BriefingActivity.openSaved(context, record.id))
-                                }
+                            NewsRepository.writeBriefing(period, customHours = hours)?.let { record ->
+                                context.startActivity(BriefingActivity.openSaved(context, record.id))
                             }
                         },
                         onOpen = { record -> context.startActivity(BriefingActivity.openSaved(context, record.id)) },
@@ -3330,11 +3328,12 @@ private fun UsageScreen(
 private fun BriefingsScreen(
     briefings: List<BriefingRecord>,
     onBack: () -> Unit,
-    onWrite: (BriefingPeriod, Int?) -> Unit,
+    onWrite: suspend (BriefingPeriod, Int?) -> Unit,
     onOpen: (BriefingRecord) -> Unit,
     onDelete: (String) -> Unit,
 ) {
     var writing by remember { mutableStateOf(false) }
+    val formScope = rememberCoroutineScope()
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier
@@ -3351,33 +3350,17 @@ private fun BriefingsScreen(
 
         item {
             SettingsSection("Write a briefing") {
-                Text(
-                    text = "The stories of the last hour, day, week, month or a period you pick, rated by how much they matter, with the reason for " +
-                        "each score and their economic, political, social and security impact. Briefings are written " +
-                        "only when you ask, with AI whenever a key is set. A widget's briefing button covers just that widget's feeds.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(enabled = !writing, onClick = { writing = true; onWrite(BriefingPeriod.Hour, null) }) {
-                        Text("Hourly")
-                    }
-                    Button(enabled = !writing, onClick = { writing = true; onWrite(BriefingPeriod.Day, null) }) {
-                        Text("Daily")
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(enabled = !writing, onClick = { writing = true; onWrite(BriefingPeriod.Week, null) }) {
-                        Text("Weekly")
-                    }
-                    Button(enabled = !writing, onClick = { writing = true; onWrite(BriefingPeriod.Month, null) }) {
-                        Text("Monthly")
-                    }
-                }
-                CustomBriefingPeriod(enabled = !writing, scope = "All feeds") { hours ->
+                // The button comes back once the briefing is written and opened.
+                BriefingForm(scopeLabel = null, enabled = !writing, onWrite = { period, hours, _ ->
                     writing = true
-                    onWrite(BriefingPeriod.Custom, hours)
-                }
+                    formScope.launch {
+                        try {
+                            onWrite(period, hours)
+                        } finally {
+                            writing = false
+                        }
+                    }
+                })
             }
         }
 
