@@ -41,6 +41,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -115,6 +116,7 @@ import com.ainews.android.data.NewsRepository
 import com.ainews.android.data.NewsStory
 import com.ainews.android.data.NewsUiState
 import com.ainews.android.data.RuntimeSettings
+import com.ainews.android.data.ThemePalette
 import com.ainews.android.data.ScheduleKind
 import com.ainews.android.data.StoryAiAction
 import com.ainews.android.data.StoryDetailSection
@@ -145,42 +147,31 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun AiNewsApp() {
-    val state by NewsRepository.state.collectAsState()
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val selectedStory = state.selectedStory
-    var screen by remember { mutableStateOf(AppScreen.Feed) }
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
-
-    BackHandler(enabled = drawerState.isOpen || screen != AppScreen.Feed || selectedStory != null) {
-        when {
-            drawerState.isOpen -> scope.launch { drawerState.close() }
-            selectedStory != null -> NewsRepository.selectStory(null)
-            else -> screen = AppScreen.Feed
-        }
-    }
-
-    val systemInDarkMode = isSystemInDarkTheme()
-    val palette = state.settings
-        .takeIf { it.useMaterialYou }
-        ?.let { dynamicThemePalette(context, state.settings.appVibe.isDark(systemInDarkMode)) }
-        ?: state.settings.appVibe.palette(systemInDarkMode)
-    val dynamicColours = state.settings.useMaterialYou && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val colorScheme = if (dynamicColours) {
-        if (state.settings.appVibe.isDark(systemInDarkMode)) {
+/**
+ * The app's colours: its vibe's palette, or Material You when chosen. The briefing screens
+ * use it too, so they look like the rest of the app in light and dark.
+ */
+internal fun appColorScheme(
+    context: android.content.Context,
+    settings: RuntimeSettings,
+    palette: ThemePalette,
+    systemInDarkMode: Boolean,
+): ColorScheme {
+    val dynamicColours = settings.useMaterialYou && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    return if (dynamicColours) {
+        if (settings.appVibe.isDark(systemInDarkMode)) {
             dynamicDarkColorScheme(context)
         } else {
             dynamicLightColorScheme(context)
         }
-    } else if (state.settings.appVibe.isDark(systemInDarkMode)) {
+    } else if (settings.appVibe.isDark(systemInDarkMode)) {
         darkColorScheme(
             background = Color(palette.background),
             surface = Color(palette.panel),
             surfaceVariant = Color(palette.backgroundAlt),
             primary = Color(palette.accentBlue),
+            // Text on the light accent in the app's own dark tone, not Material's default purple.
+            onPrimary = Color(palette.background),
             secondary = Color(palette.accentCyan),
             tertiary = Color(palette.accentGold),
             error = Color(palette.accentRose),
@@ -206,6 +197,38 @@ fun AiNewsApp() {
             outline = Color(palette.panelBorder),
         )
     }
+}
+
+/** The palette for these settings, for screens outside the main app. */
+internal fun appPalette(context: android.content.Context, settings: RuntimeSettings, systemInDarkMode: Boolean): ThemePalette =
+    settings.takeIf { it.useMaterialYou }
+        ?.let { dynamicThemePalette(context, settings.appVibe.isDark(systemInDarkMode)) }
+        ?: settings.appVibe.palette(systemInDarkMode)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun AiNewsApp() {
+    val state by NewsRepository.state.collectAsState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val selectedStory = state.selectedStory
+    var screen by remember { mutableStateOf(AppScreen.Feed) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+
+    BackHandler(enabled = drawerState.isOpen || screen != AppScreen.Feed || selectedStory != null) {
+        when {
+            drawerState.isOpen -> scope.launch { drawerState.close() }
+            selectedStory != null -> NewsRepository.selectStory(null)
+            else -> screen = AppScreen.Feed
+        }
+    }
+
+    val systemInDarkMode = isSystemInDarkTheme()
+    val palette = state.settings
+        .takeIf { it.useMaterialYou }
+        ?.let { dynamicThemePalette(context, state.settings.appVibe.isDark(systemInDarkMode)) }
+        ?: state.settings.appVibe.palette(systemInDarkMode)
+    val colorScheme = appColorScheme(context, state.settings, palette, systemInDarkMode)
 
     fun refreshWidget() {
         scope.launch { redrawAllWidgets(context) }
@@ -3333,7 +3356,18 @@ private fun BriefingsScreen(
     onDelete: (String) -> Unit,
 ) {
     var writing by remember { mutableStateOf(false) }
-    val formScope = rememberCoroutineScope()
+    val writeScope = rememberCoroutineScope()
+    // The buttons come back once the briefing is written and opened.
+    fun write(period: BriefingPeriod, hours: Int?) {
+        writing = true
+        writeScope.launch {
+            try {
+                onWrite(period, hours)
+            } finally {
+                writing = false
+            }
+        }
+    }
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier
@@ -3350,17 +3384,30 @@ private fun BriefingsScreen(
 
         item {
             SettingsSection("Write a briefing") {
-                // The button comes back once the briefing is written and opened.
-                BriefingForm(scopeLabel = null, enabled = !writing, onWrite = { period, hours, _ ->
-                    writing = true
-                    formScope.launch {
-                        try {
-                            onWrite(period, hours)
-                        } finally {
-                            writing = false
-                        }
+                Text(
+                    text = "The stories of the last hour, day, week, month or a period you pick, rated by how much they matter, with the reason for " +
+                        "each score and their economic, political, social and security impact. Briefings are written " +
+                        "only when you ask, with AI whenever a key is set. A widget's briefing button covers just that widget's feeds.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(enabled = !writing, onClick = { write(BriefingPeriod.Hour, null) }) {
+                        Text("Hourly")
                     }
-                })
+                    Button(enabled = !writing, onClick = { write(BriefingPeriod.Day, null) }) {
+                        Text("Daily")
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(enabled = !writing, onClick = { write(BriefingPeriod.Week, null) }) {
+                        Text("Weekly")
+                    }
+                    Button(enabled = !writing, onClick = { write(BriefingPeriod.Month, null) }) {
+                        Text("Monthly")
+                    }
+                }
+                CustomBriefingPeriod(enabled = !writing, scope = "All feeds") { hours -> write(BriefingPeriod.Custom, hours) }
             }
         }
 

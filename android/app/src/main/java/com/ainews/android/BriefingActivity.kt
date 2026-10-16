@@ -23,11 +23,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,7 +44,9 @@ import com.ainews.android.data.BriefingPeriod
 import com.ainews.android.data.Criterion
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.ui.BriefingScreen
-import com.ainews.android.ui.BriefingForm
+import com.ainews.android.ui.appColorScheme
+import com.ainews.android.ui.appPalette
+import com.ainews.android.ui.CustomBriefingPeriod
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -61,9 +63,12 @@ class BriefingActivity : ComponentActivity() {
         val scopeLabel = intent.getStringExtra(EXTRA_SCOPE_LABEL) ?: "All Feeds"
         val initialId = intent.getStringExtra(EXTRA_BRIEFING_ID)
         setContent {
+            // The app's own colours, so the briefing screens match it in light and dark.
             val dark = isSystemInDarkTheme()
-            MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            val appState by NewsRepository.state.collectAsState()
+            val palette = appPalette(this, appState.settings, dark)
+            MaterialTheme(colorScheme = appColorScheme(this, appState.settings, palette, dark)) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     BriefingContent(initialId, feedSourceIds, scopeLabel)
                 }
             }
@@ -125,15 +130,32 @@ class BriefingActivity : ComponentActivity() {
             }
             else -> Column(
                 modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
             ) {
-                Text("Write a briefing", style = MaterialTheme.typography.titleLarge)
-                // A widget showing every feed has nothing to choose between.
-                BriefingForm(
-                    scopeLabel = scopeLabel.takeIf { feedSourceIds.isNotEmpty() },
-                    enabled = !working,
-                    onWrite = { period, hours, allFeeds -> write(period, if (allFeeds) emptySet() else feedSourceIds, hours) },
+                Text("Briefing for $scopeLabel", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    text = "Stories rated by how much they matter, with the reason for each score, " +
+                        "their economic, political, social and security impact, and sliders to set what counts most.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Button(onClick = { write(BriefingPeriod.Hour) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Hourly briefing")
+                }
+                Button(onClick = { write(BriefingPeriod.Day) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Daily briefing")
+                }
+                Button(onClick = { write(BriefingPeriod.Week) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Weekly briefing")
+                }
+                Button(onClick = { write(BriefingPeriod.Month) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Monthly briefing")
+                }
+                CustomBriefingPeriod(enabled = true, scope = scopeLabel) { hours -> write(BriefingPeriod.Custom, customHours = hours) }
+                // Written now for every feed, never an old saved one.
+                OutlinedButton(onClick = { write(BriefingPeriod.Hour, emptySet()) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Hourly briefing · All feeds")
+                }
                 failed?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
