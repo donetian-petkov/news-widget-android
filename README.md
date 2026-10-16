@@ -81,6 +81,7 @@ Implemented so far:
   relevance, each with the fact behind it, plus their economic, political,
   social and security impact. The AI merges reports of one event and groups
   stories about one situation into a framed storyline, each with its reason,
+  shows an event that began and ended in the period as one green "Resolved" group,
   and writes an "At a glance" summary at the top; impact notes and score breakdowns fold away,
   Critical needs something happening now plus severe harm or country-wide reach,
   and sliders set what counts most. Page and labels follow the language of the

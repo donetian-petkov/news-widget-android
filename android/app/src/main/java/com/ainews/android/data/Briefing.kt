@@ -125,7 +125,28 @@ data class RatedStory(
     val storylineWhy: String? = null,
     /** The AI's one sentence on why the folded reports are the same event. */
     val duplicateWhy: String? = null,
+    /** Part of an event that began and was resolved within the briefing's period. */
+    val resolution: StoryResolution? = null,
 )
+
+enum class ResolutionRole(val key: String) {
+    Resolution("resolution"),
+    Update("update"),
+    Start("start"),
+}
+
+data class StoryResolution(
+    val key: String,
+    val label: String,
+    /** One sentence from how it began to how it ended. */
+    val summary: String,
+    val role: ResolutionRole,
+    /** Position from the first report (0) to the last. */
+    val order: Int,
+)
+
+/** An event that began and ended within the period, as the AI found it: ids from first report to last. */
+data class GroupingResolution(val ids: List<String>, val resolvedBy: String, val label: String, val summary: String)
 
 data class GroupingItem(
     val id: String,
@@ -144,6 +165,8 @@ data class StoryGrouping(
     val storylines: Map<String, String> = emptyMap(),
     /** Storyline label to how its stories connect. */
     val storylineWhy: Map<String, String> = emptyMap(),
+    /** Events that began and ended within the period. */
+    val resolutions: List<GroupingResolution> = emptyList(),
 )
 
 enum class DigestKind(val key: String) {
@@ -165,6 +188,8 @@ data class DigestItem(
     val storyline: String,
     val sources: Int,
     val impacts: Map<ImpactAngle, String>,
+    /** Set when the story began and ended within the period: how it went. */
+    val resolved: String? = null,
 )
 
 data class BriefingRecord(
@@ -527,10 +552,16 @@ object BriefingEngine {
 
     /**
      * Groups stories whose titles report the same event; the most informative one leads.
-     * [loose] also merges titles that only share names, which is a guess: when the AI groups
-     * the briefing it gets those as hints and decides, and the guess applies only without it.
+     * [loose] also merges titles that only share names, which is a guess. [exactOnly] merges
+     * only the same link or title: when the AI groups the briefing it gets the word matches
+     * as hints and decides, since "boy missing near Varna" and "boy found near Varna" share
+     * most words but are the start and the end of one event.
      */
-    fun clusterStories(stories: List<BriefingStory>, loose: Boolean = true): List<Pair<BriefingStory, List<BriefingStory>>> {
+    fun clusterStories(
+        stories: List<BriefingStory>,
+        loose: Boolean = true,
+        exactOnly: Boolean = false,
+    ): List<Pair<BriefingStory, List<BriefingStory>>> {
         class Cluster(val members: MutableList<BriefingStory>, val keys: MutableSet<String>, val names: MutableSet<String>)
         val clusters = mutableListOf<Cluster>()
         val seenLinks = mutableSetOf<String>()
@@ -538,7 +569,7 @@ object BriefingEngine {
             val key = (story.link?.takeIf { it.isNotBlank() } ?: story.title).trim().lowercase(Locale.ROOT)
             if (key.isEmpty() || !seenLinks.add(key)) continue
             val title = titleKeys(story.title)
-            val match = clusters.firstOrNull { cluster ->
+            val match = if (exactOnly) null else clusters.firstOrNull { cluster ->
                 val shared = title.keys.count { it in cluster.keys }
                 val union = (title.keys + cluster.keys).size.coerceAtLeast(1)
                 // Most of the words in common, or the same two people or things named plus one more
@@ -681,6 +712,8 @@ object BriefingEngine {
             "   different lines of it, use different words, another language or another spelling of a name (Tesla / Тесла,",
             "   Roadster / Роудстър). A joint statement by the same people reported twice is one happening. Two different",
             "   strikes, statements by one person on different subjects, or two events in the same war are NOT duplicates.",
+            "   A report that something ended (found, freed, reopened, caught) is NOT a duplicate of the report that it began;",
+            "   those go under \"resolutions\".",
             "   \"maybeSameAs\" lists items whose headlines name the same people or things. Check each of them against the",
             "   summaries and decide; sharing names alone does not make two items one happening.",
             "   For each set add \"why\": one sentence naming the shared happening, e.g. \"Both report the four former prime",
@@ -695,8 +728,14 @@ object BriefingEngine {
             "   never joins a war, politics or economy storyline, even when it uses words like \"war\", \"attack\" or \"drama\".",
             "   Give each a 2-5 word label, a \"why\" sentence saying how its items connect, and the ids that belong to it.",
             "   An item can be in at most one storyline. Most items belong to none.",
+            "3. \"resolutions\": events that began AND were resolved within these items: a later item ends what an earlier one",
+            "   reported (a missing person found, hostages freed, a fire contained, a closed road or airport reopened, a strike",
+            "   called off, a suspect caught). List the ids from the first report to the last, say which id resolves it",
+            "   (\"resolvedBy\"), give a 2-5 word label and a \"summary\": one sentence from how it began to how it ended, with",
+            "   the times or facts the items give. Only when the later item clearly ends it; an update that does not end it is",
+            "   not a resolution. Items in a resolution are in no storyline.",
             "Write labels and reasons in ${if (language == BriefingLanguage.Bulgarian) "Bulgarian" else "English"}.",
-            "Return strict JSON only: {\"duplicates\":[{\"ids\":[\"id\",\"id\"],\"why\":\"...\"}],\"storylines\":[{\"label\":\"...\",\"why\":\"...\",\"ids\":[\"id\",\"id\"]}]}",
+            "Return strict JSON only: {\"duplicates\":[{\"ids\":[\"id\",\"id\"],\"why\":\"...\"}],\"storylines\":[{\"label\":\"...\",\"why\":\"...\",\"ids\":[\"id\",\"id\"]}],\"resolutions\":[{\"ids\":[\"first\",\"last\"],\"resolvedBy\":\"last\",\"label\":\"...\",\"summary\":\"...\"}]}",
             "Items: $json",
         ).joinToString("\n")
     }
@@ -729,7 +768,25 @@ object BriefingEngine {
                 ids(line.optJSONArray("ids")).forEach { id -> storylines.putIfAbsent(id, label) }
             }
         }
-        return StoryGrouping(duplicates, duplicateWhy, storylines, storylineWhy)
+        val resolutions = mutableListOf<GroupingResolution>()
+        json.optJSONArray("resolutions")?.let { arcs ->
+            for (index in 0 until arcs.length()) {
+                val arc = arcs.optJSONObject(index) ?: continue
+                val members = ids(arc.optJSONArray("ids")).distinct()
+                val label = arc.optString("label").trim().take(60)
+                if (members.size !in 2..8 || label.isEmpty()) continue
+                val named = arc.optString("resolvedBy").trim().take(200)
+                resolutions.add(
+                    GroupingResolution(
+                        ids = members,
+                        resolvedBy = if (named in members) named else members.last(),
+                        label = label,
+                        summary = arc.optString("summary").trim().take(300),
+                    ),
+                )
+            }
+        }
+        return StoryGrouping(duplicates, duplicateWhy, storylines, storylineWhy, resolutions)
     }
 
     private fun labelKey(label: String): String = words(label).joinToString(" ")
@@ -769,14 +826,35 @@ object BriefingEngine {
             }
             grouping.duplicateWhy.getOrNull(index)?.takeIf { it.isNotBlank() }?.let { reasons.putIfAbsent(lead.story.id, it) }
         }
-        val kept = rated
+        var kept = rated
             .filter { it.story.id !in absorbed }
             .map { entry ->
                 extraRelated[entry.story.id]?.let {
                     withCoverage(entry.copy(related = entry.related + it, duplicateWhy = reasons[entry.story.id]), aiRan, language)
                 } ?: entry
             }
-        fun lineOf(entry: RatedStory) = labelKey(grouping.storylines[entry.story.id].orEmpty())
+        // An event that began and ended in the period: its reports become one group, the
+        // resolution first. A report folded as a duplicate counts as the story it was folded into.
+        val leadOf = mutableMapOf<String, String>()
+        kept.forEach { entry -> (listOf(entry.story) + entry.related).forEach { leadOf.putIfAbsent(it.id, entry.story.id) } }
+        val arcs = mutableMapOf<String, StoryResolution>()
+        grouping.resolutions.forEachIndexed { arcIndex, arc ->
+            val members = mutableListOf<String>()
+            arc.ids.forEach { id -> leadOf[id]?.let { lead -> if (lead !in members && lead !in arcs) members.add(lead) } }
+            if (members.size < 2) return@forEachIndexed
+            val resolver = leadOf[arc.resolvedBy]
+            val key = "resolution-$arcIndex-${labelKey(arc.label)}"
+            members.forEachIndexed { order, id ->
+                val role = when {
+                    id == resolver || (resolver !in members && order == members.size - 1) -> ResolutionRole.Resolution
+                    order == 0 -> ResolutionRole.Start
+                    else -> ResolutionRole.Update
+                }
+                arcs[id] = StoryResolution(key, arc.label, arc.summary, role, order)
+            }
+        }
+        kept = kept.map { entry -> arcs[entry.story.id]?.let { entry.copy(resolution = it) } ?: entry }
+        fun lineOf(entry: RatedStory) = if (entry.resolution != null) "" else labelKey(grouping.storylines[entry.story.id].orEmpty())
         val members = kept.filter { lineOf(it).isNotEmpty() }.groupBy(::lineOf)
         // A safety net under the AI: a sports or entertainment story stays in a storyline only
         // beside another of its kind, so a football row never sits inside a war storyline.
@@ -788,7 +866,7 @@ object BriefingEngine {
         val counts = kept.filter { lineOf(it).isNotEmpty() && fits(it) }.groupingBy(::lineOf).eachCount()
         return kept.map { entry ->
             val label = grouping.storylines[entry.story.id].orEmpty()
-            if (!fits(entry) || (counts[labelKey(label)] ?: 0) < 2) entry
+            if (entry.resolution != null || !fits(entry) || (counts[labelKey(label)] ?: 0) < 2) entry
             else entry.copy(storyline = label, storylineWhy = grouping.storylineWhy[label])
         }
     }
@@ -813,7 +891,8 @@ object BriefingEngine {
                     .put("area", item.area)
                     .put("storyline", item.storyline)
                     .put("sources", item.sources)
-                    .put("impacts", JSONObject().also { impacts -> item.impacts.forEach { (angle, text) -> impacts.put(angle.key, text) } }),
+                    .put("impacts", JSONObject().also { impacts -> item.impacts.forEach { (angle, text) -> impacts.put(angle.key, text) } })
+                    .also { entry -> item.resolved?.let { entry.put("resolved", it) } },
             )
         }
         return listOf(
@@ -827,6 +906,7 @@ object BriefingEngine {
             "  number, place), and what it means for the reader. Do not just repeat the headline. No generic phrases such as",
             "  \"significant development\" or \"affects many people\".",
             "- $LITERAL_FACTS_RULE The story summaries below may themselves repeat a headline's figure of speech; do not copy it.",
+            "- A story with \"resolved\" began and ended within this period: give it one bullet that says how it ended.",
             "- Finish with one bullet of kind \"interesting\" for the most surprising or unusual story not covered above, if any.",
             "- kind: \"critical\" for bullets about stories rated critical, \"leading\" for the other important ones, \"interesting\" for the last.",
             "- ids: the ids of the stories the bullet is about.",
@@ -973,6 +1053,12 @@ object BriefingEngine {
             .put("storyline", entry.storyline.orEmpty())
             .put("storylineWhy", entry.storylineWhy.orEmpty())
             .put("duplicateWhy", entry.duplicateWhy.orEmpty())
+            .put(
+                "resolution",
+                entry.resolution?.let {
+                    JSONObject().put("key", it.key).put("label", it.label).put("summary", it.summary).put("role", it.role.key).put("order", it.order)
+                } ?: JSONObject.NULL,
+            )
             .put("related", related)
     }
 
@@ -1088,9 +1174,9 @@ object BriefingEngine {
         // The page holds more than it shows, so moving the sliders can bring other stories up.
         val pageSize = if (options.period == BriefingPeriod.Day) 60 else 36
         val inWindow = stories.filter { it.publishedAt >= window.startMs && it.publishedAt < window.endMs }
-        // With the AI grouping the briefing, only near-identical titles are merged up front; looser
+        // With the AI grouping the briefing, only the same link or title is merged up front; word
         // matches go to it as hints so it decides from what the stories say.
-        var rated = clusterStories(inWindow, loose = groupWithAi == null).map { (story, related) ->
+        var rated = clusterStories(inWindow, loose = true, exactOnly = groupWithAi != null).map { (story, related) ->
             val rating = ruleRating(story, related, window, options.trackedTerms, options.localTerms, options.region, language)
             val score = scoreOf(rating.scores)
             RatedStory(story, related, rating, score, levelOf(score))
@@ -1175,6 +1261,7 @@ object BriefingEngine {
                             storyline = entry.storyline.orEmpty(),
                             sources = distinctSources(listOf(entry.story) + entry.related).size,
                             impacts = entry.rating.impacts,
+                            resolved = entry.resolution?.let { it.summary.ifBlank { it.label } },
                         )
                     },
                 )
@@ -1223,6 +1310,7 @@ data class PageStory(
     val storylineWhy: String,
     val duplicateWhy: String,
     val related: List<PageRelated>,
+    val resolution: StoryResolution? = null,
 )
 
 /** A line of the AI's summary: the stories it points at, by [PageStory.index]. */
@@ -1245,9 +1333,14 @@ data class BriefingPage(
 
 data class RankedStory(val story: PageStory, val score: Int, val level: PriorityLevel)
 
-/** One story, or a storyline: several different stories about one ongoing situation. */
+/**
+ * One story, a storyline (several different stories about one ongoing situation), or an
+ * event that began and ended within the period, with the resolution first.
+ */
 data class BriefingUnit(val label: String, val entries: List<RankedStory>) {
     val lead: RankedStory get() = entries.first()
+    val resolved: Boolean get() = entries.size > 1 && entries.first().story.resolution != null
+    val resolutionSummary: String get() = entries.firstNotNullOfOrNull { it.story.resolution?.summary?.ifBlank { null } }.orEmpty()
     val why: String get() = entries.firstOrNull { it.story.storylineWhy.isNotBlank() }?.story?.storylineWhy.orEmpty()
 }
 
@@ -1326,6 +1419,15 @@ object BriefingPageReader {
             storyline = json.optString("storyline"),
             storylineWhy = json.optString("storylineWhy"),
             duplicateWhy = json.optString("duplicateWhy"),
+            resolution = json.optJSONObject("resolution")?.let { arc ->
+                StoryResolution(
+                    key = arc.optString("key"),
+                    label = arc.optString("label"),
+                    summary = arc.optString("summary"),
+                    role = ResolutionRole.entries.firstOrNull { it.key == arc.optString("role") } ?: ResolutionRole.Update,
+                    order = arc.optInt("order"),
+                )
+            },
             related = (0 until related.length()).mapNotNull { at ->
                 related.optJSONObject(at)?.let {
                     PageRelated(it.optString("title"), it.optString("source"), it.optString("time"), it.optString("link"))
@@ -1342,8 +1444,11 @@ object BriefingPageReader {
      * level of the strongest story it points to, at the reader's current weights.
      */
     fun glance(page: BriefingPage, ranked: RankedBriefing): List<GlanceLine> {
+        // One line per resolved event: its strongest report stands for it, told by its summary.
+        val seenArcs = mutableSetOf<String>()
         val entries = ranked.shown.flatMap { it.entries }
             .sortedWith(compareByDescending<RankedStory> { it.score }.thenByDescending { it.story.publishedMs })
+            .filter { entry -> entry.story.resolution?.let { seenArcs.add(it.key) } ?: true }
         val levelAt = entries.associate { it.story.index to it.level }
         fun levelOf(targets: List<Int>): PriorityLevel =
             PriorityLevel.entries.firstOrNull { level -> targets.any { levelAt[it] == level } } ?: PriorityLevel.Routine
@@ -1359,8 +1464,12 @@ object BriefingPageReader {
             .filter { it !in lead && (it.story.scores[Criterion.Interest] ?: 0) >= 2 }
             .sortedWith(compareByDescending<RankedStory> { it.story.scores[Criterion.Interest] ?: 0 }.thenByDescending { it.score })
             .firstOrNull()
-        fun line(entry: RankedStory, marked: Boolean) =
-            GlanceLine(entry.story.summary.ifBlank { entry.story.title }, entry.level, listOf(entry.story.index), marked)
+        fun line(entry: RankedStory, marked: Boolean) = GlanceLine(
+            entry.story.resolution?.summary?.ifBlank { null } ?: entry.story.summary.ifBlank { entry.story.title },
+            entry.level,
+            listOf(entry.story.index),
+            marked,
+        )
         return lead.map { line(it, false) } + listOfNotNull(curious?.let { line(it, true) })
     }
 
@@ -1392,15 +1501,22 @@ object BriefingPageReader {
         val units = mutableListOf<Builder>()
         val byLine = mutableMapOf<String, Builder>()
         for (entry in ranked) {
-            val key = entry.story.storyline.trim().lowercase(Locale.ROOT)
+            val arc = entry.story.resolution
+            val key = arc?.key ?: entry.story.storyline.trim().lowercase(Locale.ROOT)
             val existing = if (key.isNotEmpty()) byLine[key] else null
             if (existing != null) {
                 existing.entries.add(entry)
                 continue
             }
-            val unit = Builder(entry.story.storyline, mutableListOf(entry))
+            val unit = Builder(arc?.label ?: entry.story.storyline, mutableListOf(entry))
             if (key.isNotEmpty()) byLine[key] = unit
             units.add(unit)
+        }
+        // The resolution leads, then the updates from the latest back to how it began.
+        units.filter { it.entries.first().story.resolution != null }.forEach { unit ->
+            unit.entries.sortWith(
+                compareBy<RankedStory> { it.story.resolution?.role?.ordinal ?: 0 }.thenByDescending { it.story.resolution?.order ?: 0 },
+            )
         }
 
         val cap = maxOf(2, ceil(page.limit * 0.3).toInt())

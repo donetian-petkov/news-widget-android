@@ -78,6 +78,7 @@ import com.ainews.android.data.GlanceLine
 import com.ainews.android.data.ImpactAngle
 import com.ainews.android.data.PriorityLevel
 import com.ainews.android.data.RankedStory
+import com.ainews.android.data.ResolutionRole
 import com.ainews.android.network.ImageDiskCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -329,6 +330,10 @@ private fun UnitBlock(page: BriefingPage, unit: BriefingUnit, weights: Map<Crite
         StoryCard(page, unit.lead, weights, onOpenLink)
         return
     }
+    if (unit.resolved) {
+        ResolvedBlock(page, unit, weights, onOpenLink)
+        return
+    }
     val dark = isSystemInDarkTheme()
     Surface(
         shape = RoundedCornerShape(14.dp),
@@ -361,6 +366,64 @@ private fun UnitBlock(page: BriefingPage, unit: BriefingUnit, weights: Map<Crite
                     Text(unit.why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 unit.entries.forEach { StoryCard(page, it, weights, onOpenLink) }
+            }
+        }
+    }
+}
+
+private fun resolvedColor(dark: Boolean): Color = if (dark) Color(0xFF2F8F57) else Color(0xFF1F7A45)
+
+private fun resolvedBackground(dark: Boolean): Color = if (dark) Color(0xFF15241B) else Color(0xFFE9F5EE)
+
+/**
+ * An event that began and ended in the period: green frame, the summary from start to
+ * finish on top, then the report that ended it, the updates from latest to earliest, and
+ * the first report last, each marked with its role and time.
+ */
+@Composable
+private fun ResolvedBlock(page: BriefingPage, unit: BriefingUnit, weights: Map<Criterion, Double>, onOpenLink: (String) -> Unit) {
+    val dark = isSystemInDarkTheme()
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = resolvedBackground(dark),
+        border = BorderStroke(2.dp, resolvedColor(dark)),
+        modifier = Modifier.padding(vertical = 8.dp),
+    ) {
+        Column {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().background(resolvedColor(dark)).padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                Text(page.say("resolved").uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.85f))
+                Spacer(Modifier.width(10.dp))
+                Text(unit.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f, fill = false))
+                Spacer(Modifier.width(10.dp))
+                Text(page.say("reports", "n" to unit.entries.size), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f))
+            }
+            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (unit.resolutionSummary.isNotBlank()) {
+                    Text(unit.resolutionSummary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                }
+                unit.entries.forEach { entry ->
+                    val role = entry.story.resolution?.role ?: ResolutionRole.Update
+                    val roleText = page.say(
+                        when (role) {
+                            ResolutionRole.Resolution -> "roleResolution"
+                            ResolutionRole.Update -> "roleUpdate"
+                            ResolutionRole.Start -> "roleStart"
+                        },
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            (roleText + " · " + entry.story.time).uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (role == ResolutionRole.Resolution) resolvedColor(dark) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                        StoryCard(page, entry, weights, onOpenLink)
+                    }
+                }
             }
         }
     }

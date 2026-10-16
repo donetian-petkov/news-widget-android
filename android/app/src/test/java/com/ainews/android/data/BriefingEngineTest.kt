@@ -457,6 +457,66 @@ class BriefingEngineTest {
     }
 
     @Test
+    fun groupsAnEventThatBeganAndEndedInThePeriodResolutionFirst() {
+        val grouping = BriefingEngine.parseGrouping(
+            """{"duplicates":[["found","found-2"]],
+               "storylines":[{"label":"Search","ids":["missing","found","other"]}],
+               "resolutions":[{"ids":["missing","search","found-2"],"resolvedBy":"found-2","label":"Missing boy found",
+                 "summary":"Reported missing at 9:10, found unharmed at 11:40."}]}""",
+        )
+        assertEquals(1, grouping.resolutions.size)
+        val grouped = BriefingEngine.applyGrouping(
+            listOf(
+                entry("found", 70, ImpactDimension.Society), entry("found-2", 50, ImpactDimension.Society),
+                entry("missing", 60, ImpactDimension.Society), entry("search", 40, ImpactDimension.Society),
+                entry("other", 30, ImpactDimension.Society),
+            ),
+            grouping,
+        )
+        val roles = grouped.associate { it.story.id to it.resolution?.role }
+        // "found-2" was folded into "found", so "found" resolves it.
+        assertEquals(
+            mapOf("found" to ResolutionRole.Resolution, "missing" to ResolutionRole.Start, "search" to ResolutionRole.Update, "other" to null),
+            roles,
+        )
+        assertEquals("Reported missing at 9:10, found unharmed at 11:40.", grouped.first { it.story.id == "found" }.resolution?.summary)
+        // Items in a resolution leave their storyline, which then has too few stories.
+        assertEquals(listOf<String?>(null, null, null, null), grouped.map { it.storyline })
+    }
+
+    @Test
+    fun ignoresAResolutionWithASingleStoryOrNoLabel() {
+        val grouping = BriefingEngine.parseGrouping("""{"resolutions":[{"ids":["a"],"label":"x"},{"ids":["a","b"],"label":""}]}""")
+        assertTrue(grouping.resolutions.isEmpty())
+    }
+
+    @Test
+    fun shipsTheResolutionWithEachStoryAndTheLabelsForThePage() = runBlocking {
+        val briefing = BriefingEngine.build(
+            stories = listOf(
+                story(id = "m", title = "Boy missing near Varna", publishedAt = at(13, 5)),
+                story(id = "f", title = "Missing boy found unharmed", publishedAt = at(13, 50)),
+            ),
+            options = BriefingOptions(BriefingPeriod.Hour, "All", hour, language = BriefingLanguage.Bulgarian),
+            template = template,
+            groupWithAi = {
+                BriefingEngine.parseGrouping("""{"resolutions":[{"ids":["m","f"],"resolvedBy":"f","label":"Изчезнало момче","summary":"Намерено."}]}""")
+            },
+        )
+        val page = BriefingPageReader.parse(briefing.html)!!
+        // Not folded up front although the titles share most words: the AI saw both.
+        assertEquals(listOf(ResolutionRole.Resolution, ResolutionRole.Start), page.stories.mapNotNull { it.resolution?.role }.sorted())
+        assertEquals("Разрешено", page.say("resolved"))
+        assertEquals("Начало", page.say("roleStart"))
+        val ranked = BriefingPageReader.rank(page, BriefingEngine.DEFAULT_WEIGHTS)
+        val unit = (ranked.shown + ranked.more).single()
+        assertTrue(unit.resolved)
+        assertEquals("Изчезнало момче", unit.label)
+        assertEquals(listOf(ResolutionRole.Resolution, ResolutionRole.Start), unit.entries.map { it.story.resolution!!.role })
+        assertEquals(listOf("Намерено."), BriefingPageReader.glance(page, ranked).map { it.text })
+    }
+
+    @Test
     fun everyBriefingPromptCarriesTheLiteralFactsRule() {
         val rule = BriefingEngine.LITERAL_FACTS_RULE
         assertTrue(BriefingEngine.buildAiRatingPrompt(emptyList(), true, "България").contains(rule))

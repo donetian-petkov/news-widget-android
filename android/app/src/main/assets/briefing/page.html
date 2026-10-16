@@ -8,12 +8,12 @@
   :root { --bg: #f6f7f9; --card: #ffffff; --text: #16181d; --muted: #616875; --border: #e2e5ea; --accent: #2f6fde;
     --critical: #c62828; --high: #e07a00; --notable: #2f6fde; --routine: #8a919c; --chip: #eef1f5;
     --economic: #1f8a4c; --political: #6a4cc7; --social: #c2410c; --security: #b42318;
-    --storyline: #4b5bbd; --storyline-bg: #eceefb; }
+    --storyline: #4b5bbd; --storyline-bg: #eceefb; --resolved: #1f7a45; --resolved-bg: #e9f5ee; }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #111317; --card: #1a1d23; --text: #e8eaee; --muted: #9aa1ad; --border: #2a2e36; --accent: #7aa7ff;
       --critical: #ff6b6b; --high: #ffa94d; --notable: #7aa7ff; --routine: #8a919c; --chip: #242830;
       --economic: #4ade80; --political: #a78bfa; --social: #fb923c; --security: #f87171;
-      --storyline: #4652a8; --storyline-bg: #1c1f33; }
+      --storyline: #4652a8; --storyline-bg: #1c1f33; --resolved: #2f8f57; --resolved-bg: #15241b; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -113,6 +113,16 @@
   .storyline-why { margin: 10px 16px 0; font-size: 13px; color: var(--muted); }
   .storyline > article { margin: 10px 10px 0; }
   .storyline > article:last-child { margin-bottom: 10px; }
+  /* An event that began and ended in the period: green frame, summary on top, the
+     resolution first and the first report last. */
+  .resolved { border: 2px solid var(--resolved); border-radius: 14px; margin: 26px 0; background: var(--resolved-bg); overflow: hidden; }
+  .resolved-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 10px 16px; background: var(--resolved); color: #fff; }
+  .resolved-summary { margin: 10px 16px 0; font-weight: 600; }
+  .resolved-step { margin: 10px 10px 0; }
+  .resolved-step:last-child { margin-bottom: 10px; }
+  .resolved-step > article { margin: 4px 0 0; }
+  .resolved-role { margin: 0 4px; font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+  .role-resolution .resolved-role { color: var(--resolved); }
   .storyline-label { font-weight: 700; font-size: 15px; }
   .storyline-count { font-size: 12.5px; }
   .dupes { margin-top: 8px; font-size: 13px; color: var(--muted); }
@@ -220,13 +230,20 @@
       const score = data.aiRan && story.ratedBy === 'rules' ? Math.min(raw, data.uncheckedCap) : raw;
       return { story, index, score, level: levelOf(score) };
     }).sort((a, b) => b.score - a.score || b.story.publishedMs - a.story.publishedMs);
+    // A unit is one story, a storyline, or an event that began and ended in the period.
     const units = [], byLine = {};
     for (const entry of all) {
-      const key = (entry.story.storyline || '').toLowerCase().trim();
+      const arc = entry.story.resolution;
+      const key = arc ? arc.key : (entry.story.storyline || '').toLowerCase().trim();
       if (key && byLine[key]) { byLine[key].entries.push(entry); continue; }
-      const unit = { label: entry.story.storyline || '', entries: [entry], score: entry.score, level: entry.level, dimension: entry.story.dimension, publishedMs: entry.story.publishedMs };
+      const unit = { label: arc ? arc.label : entry.story.storyline || '', resolution: arc || null, entries: [entry], score: entry.score, level: entry.level, dimension: entry.story.dimension, publishedMs: entry.story.publishedMs };
       if (key) byLine[key] = unit;
       units.push(unit);
+    }
+    // The resolution leads, then the updates from the latest back to how it began.
+    const roleRank = { resolution: 0, update: 1, start: 2 };
+    for (const unit of units) {
+      if (unit.resolution) unit.entries.sort((a, b) => roleRank[a.story.resolution.role] - roleRank[b.story.resolution.role] || b.story.resolution.order - a.story.resolution.order);
     }
     const cap = Math.max(2, Math.ceil(data.limit * 0.3));
     const picked = [], overflow = [], per = {};
@@ -348,8 +365,29 @@
     return article;
   }
 
+  function resolvedNode(unit) {
+    const box = el('div', 'resolved level-' + unit.level);
+    const head = el('div', 'resolved-head');
+    head.append(
+      el('span', 'storyline-kicker', T.resolved),
+      el('span', 'storyline-label', unit.label),
+      el('span', 'storyline-count', fill(T.reports, { n: unit.entries.length }))
+    );
+    box.append(head);
+    const summary = unit.entries.map(entry => entry.story.resolution.summary).find(Boolean);
+    if (summary) box.append(el('p', 'resolved-summary', summary));
+    const roles = { resolution: T.roleResolution, update: T.roleUpdate, start: T.roleStart };
+    unit.entries.forEach(entry => {
+      const step = el('div', 'resolved-step role-' + entry.story.resolution.role);
+      step.append(el('p', 'resolved-role', roles[entry.story.resolution.role] + ' · ' + entry.story.time), card(entry));
+      box.append(step);
+    });
+    return box;
+  }
+
   function unitNode(unit) {
     if (unit.entries.length < 2) return card(unit.entries[0]);
+    if (unit.resolution) return resolvedNode(unit);
     const box = el('div', 'storyline level-' + unit.level);
     const head = el('div', 'storyline-head');
     head.append(
@@ -382,7 +420,17 @@
   // call everything critical. The dot takes the colour of the strongest story a line
   // points to, at the current slider weights; only the closing curiosity is marked.
   function glanceLines(picked) {
-    const entries = picked.flatMap(unit => unit.entries).sort((a, b) => b.score - a.score || b.story.publishedMs - a.story.publishedMs);
+    // One line per resolved event: its strongest report stands for it, told by its summary.
+    const seenArcs = new Set();
+    const entries = picked.flatMap(unit => unit.entries)
+      .sort((a, b) => b.score - a.score || b.story.publishedMs - a.story.publishedMs)
+      .filter(e => {
+        const arc = e.story.resolution;
+        if (!arc) return true;
+        if (seenArcs.has(arc.key)) return false;
+        seenArcs.add(arc.key);
+        return true;
+      });
     const levelAt = {};
     entries.forEach(e => { levelAt[e.index] = e.level; });
     const order = ['critical', 'high', 'notable', 'routine'];
@@ -403,7 +451,7 @@
     const curious = entries
       .filter(e => !lead.includes(e) && e.story.scores.interest >= 2)
       .sort((a, b) => b.story.scores.interest - a.story.scores.interest || b.score - a.score)[0];
-    const line = (e, tag) => ({ tag, cls: 'level-' + e.level, text: e.story.summary || e.story.title, targets: [e.index] });
+    const line = (e, tag) => ({ tag, cls: 'level-' + e.level, text: (e.story.resolution && e.story.resolution.summary) || e.story.summary || e.story.title, targets: [e.index] });
     return lead.map(e => line(e, '')).concat(curious ? [line(curious, T.alsoInteresting)] : []);
   }
   function glance(picked) {
