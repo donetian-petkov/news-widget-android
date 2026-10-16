@@ -551,6 +551,13 @@ class BriefingEngineTest {
     }
 
     @Test
+    fun asksForTheMainSurpriseOfAStoryNotASideNumber() {
+        val prompt = BriefingEngine.buildAiRatingPrompt(emptyList(), true, "България")
+        assertTrue(prompt.contains("main claim in the headline"))
+        assertTrue(prompt.contains("a car that flies, not its acceleration"))
+    }
+
+    @Test
     fun everyBriefingPromptCarriesTheLiteralFactsRule() {
         val rule = BriefingEngine.LITERAL_FACTS_RULE
         assertTrue(BriefingEngine.buildAiRatingPrompt(emptyList(), true, "България").contains(rule))
