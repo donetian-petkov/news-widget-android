@@ -76,8 +76,8 @@ Implemented so far:
 - OPML import and export for the feed list.
 - Daily digests with a notification, plus user-defined schedules for refresh,
   monitor scans, and digests.
-- Hourly and daily briefings, the same as the Mac widget's: the stories of the
-  last hour or day rated 0-3 on severity, scale, urgency, interest, coverage and
+- Hourly, daily, weekly, monthly and custom briefings (1 hour to 90 days),
+  the same as the Mac widget's: the stories of the period rated 0-3 on severity, scale, urgency, interest, coverage and
   relevance, each with the fact behind it, plus their economic, political,
   social and security impact. The AI merges reports of one event and groups
   stories about one situation into a framed storyline, each with its reason,

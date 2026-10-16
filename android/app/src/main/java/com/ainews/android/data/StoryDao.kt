@@ -11,6 +11,10 @@ interface StoryDao {
     @Query("SELECT * FROM stories ORDER BY publishedAt DESC")
     fun observeStories(): Flow<List<StoryEntity>>
 
+    /** The stored stories of one period, for briefings that reach back further than the screen shows. */
+    @Query("SELECT * FROM stories WHERE publishedAt >= :startMs AND publishedAt < :endMs ORDER BY publishedAt DESC")
+    fun storiesBetween(startMs: Long, endMs: Long): List<StoryEntity>
+
     @Query("SELECT COUNT(*) FROM stories")
     fun countStories(): Int
 

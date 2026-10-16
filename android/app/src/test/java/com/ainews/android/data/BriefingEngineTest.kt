@@ -517,6 +517,40 @@ class BriefingEngineTest {
     }
 
     @Test
+    fun coversAWeekAMonthOrACustomNumberOfHoursAndGrowsThePageWithThePeriod() {
+        val now = at(14)
+        fun hoursOf(window: BriefingWindow) = (window.endMs - window.startMs) / 3_600_000
+        assertEquals(168, hoursOf(BriefingEngine.rollingWindow(BriefingPeriod.Week, now)))
+        assertEquals(720, hoursOf(BriefingEngine.rollingWindow(BriefingPeriod.Month, now)))
+        assertEquals(72, hoursOf(BriefingEngine.rollingWindow(BriefingPeriod.Custom, now, 72)))
+        assertEquals(BriefingPeriod.MAX_CUSTOM_HOURS.toLong(), hoursOf(BriefingEngine.rollingWindow(BriefingPeriod.Custom, now, 99_999)))
+        assertEquals(BriefingEngine.BriefingSize(12, 36), BriefingEngine.briefingSize(BriefingEngine.rollingWindow(BriefingPeriod.Hour, now)))
+        assertEquals(BriefingEngine.BriefingSize(25, 70), BriefingEngine.briefingSize(BriefingEngine.rollingWindow(BriefingPeriod.Week, now)))
+        assertEquals(BriefingEngine.BriefingSize(30, 80), BriefingEngine.briefingSize(BriefingEngine.rollingWindow(BriefingPeriod.Month, now)))
+        val week = BriefingEngine.rollingWindow(BriefingPeriod.Week, now)
+        assertTrue(
+            Regex("^Седмичен бюлетин · Всички източници · .+ – .+$").matches(
+                BriefingEngine.briefingTitle(BriefingPeriod.Week, "Всички източници", week, BriefingLanguage.Bulgarian),
+            ),
+        )
+        assertEquals(BriefingPeriod.Month, BriefingPeriod.fromKey("month"))
+    }
+
+    @Test
+    fun showsTheDateWithEachStoryTimeInABriefingLongerThanADay() = runBlocking {
+        val window = BriefingWindow(at(14) - 7 * 86_400_000L, at(14))
+        val briefing = BriefingEngine.build(
+            listOf(story(title = "Old story", publishedAt = at(14) - 3 * 86_400_000L)),
+            BriefingOptions(BriefingPeriod.Week, "All", window),
+            template,
+        )
+        val time = BriefingPageReader.parse(briefing.html)!!.stories.single().time
+        assertTrue(Regex("\\d{1,2}:\\d{2}").containsMatchIn(time))
+        assertTrue(time.length > 5)
+        assertEquals(5, BriefingPageReader.parse(BriefingEngine.build(listOf(story()), BriefingOptions(BriefingPeriod.Hour, "All", hour), template).html)!!.stories.single().time.length)
+    }
+
+    @Test
     fun everyBriefingPromptCarriesTheLiteralFactsRule() {
         val rule = BriefingEngine.LITERAL_FACTS_RULE
         assertTrue(BriefingEngine.buildAiRatingPrompt(emptyList(), true, "България").contains(rule))

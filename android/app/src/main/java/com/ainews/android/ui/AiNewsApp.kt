@@ -404,9 +404,9 @@ fun AiNewsApp() {
                     AppScreen.Briefings -> BriefingsScreen(
                         briefings = state.briefings,
                         onBack = { screen = AppScreen.Feed },
-                        onWrite = { period ->
+                        onWrite = { period, hours ->
                             scope.launch {
-                                NewsRepository.writeBriefing(period)?.let { record ->
+                                NewsRepository.writeBriefing(period, customHours = hours)?.let { record ->
                                     context.startActivity(BriefingActivity.openSaved(context, record.id))
                                 }
                             }
@@ -3330,7 +3330,7 @@ private fun UsageScreen(
 private fun BriefingsScreen(
     briefings: List<BriefingRecord>,
     onBack: () -> Unit,
-    onWrite: (BriefingPeriod) -> Unit,
+    onWrite: (BriefingPeriod, Int?) -> Unit,
     onOpen: (BriefingRecord) -> Unit,
     onDelete: (String) -> Unit,
 ) {
@@ -3352,19 +3352,31 @@ private fun BriefingsScreen(
         item {
             SettingsSection("Write a briefing") {
                 Text(
-                    text = "The stories of the last hour or day, rated by how much they matter, with the reason for " +
+                    text = "The stories of the last hour, day, week, month or a period you pick, rated by how much they matter, with the reason for " +
                         "each score and their economic, political, social and security impact. Briefings are written " +
                         "only when you ask, with AI whenever a key is set. A widget's briefing button covers just that widget's feeds.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(enabled = !writing, onClick = { writing = true; onWrite(BriefingPeriod.Hour) }) {
+                    Button(enabled = !writing, onClick = { writing = true; onWrite(BriefingPeriod.Hour, null) }) {
                         Text("Hourly")
                     }
-                    Button(enabled = !writing, onClick = { writing = true; onWrite(BriefingPeriod.Day) }) {
+                    Button(enabled = !writing, onClick = { writing = true; onWrite(BriefingPeriod.Day, null) }) {
                         Text("Daily")
                     }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(enabled = !writing, onClick = { writing = true; onWrite(BriefingPeriod.Week, null) }) {
+                        Text("Weekly")
+                    }
+                    Button(enabled = !writing, onClick = { writing = true; onWrite(BriefingPeriod.Month, null) }) {
+                        Text("Monthly")
+                    }
+                }
+                CustomBriefingPeriod(enabled = !writing, scope = "All feeds") { hours ->
+                    writing = true
+                    onWrite(BriefingPeriod.Custom, hours)
                 }
             }
         }

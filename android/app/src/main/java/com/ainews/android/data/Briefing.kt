@@ -21,9 +21,21 @@ import kotlin.math.roundToInt
  * apps show the same briefing.
  */
 
-enum class BriefingPeriod(val key: String) {
-    Hour("hour"),
-    Day("day"),
+/** [hours]: how long each fixed period is; a custom one brings its own. */
+enum class BriefingPeriod(val key: String, val hours: Int?) {
+    Hour("hour", 1),
+    Day("day", 24),
+    Week("week", 168),
+    Month("month", 720),
+    Custom("custom", null),
+    ;
+
+    companion object {
+        fun fromKey(key: String?): BriefingPeriod = entries.firstOrNull { it.key == key } ?: Hour
+
+        /** Stories are read back at most this far, as on the Mac (which keeps them 90 days). */
+        const val MAX_CUSTOM_HOURS = 90 * 24
+    }
 }
 
 enum class ImpactDimension(val key: String, val label: String) {
@@ -221,7 +233,7 @@ data class BriefingRecord(
             return BriefingRecord(
                 id = id,
                 title = json.optString("title"),
-                period = if (json.optString("period") == BriefingPeriod.Day.key) BriefingPeriod.Day else BriefingPeriod.Hour,
+                period = BriefingPeriod.fromKey(json.optString("period")),
                 scope = json.optString("scope", "All feeds"),
                 scheduled = json.optBoolean("scheduled"),
                 windowStartMs = json.optLong("windowStartMs"),
@@ -967,9 +979,33 @@ object BriefingEngine {
 
     // ---- windows and titles ----
 
-    /** The hour or day that ends now. */
-    fun rollingWindow(period: BriefingPeriod, nowMs: Long): BriefingWindow =
-        BriefingWindow(nowMs - if (period == BriefingPeriod.Day) 24 * HOUR_MS else HOUR_MS, nowMs)
+    /** The period that ends now: an hour, day, week or month, or [customHours] for a custom one. */
+    fun rollingWindow(period: BriefingPeriod, nowMs: Long, customHours: Int? = null): BriefingWindow {
+        val hours = period.hours ?: (customHours ?: 24).coerceIn(1, BriefingPeriod.MAX_CUSTOM_HOURS)
+        return BriefingWindow(nowMs - hours * HOUR_MS, nowMs)
+    }
+
+    data class BriefingSize(val limit: Int, val pageSize: Int)
+
+    /**
+     * How many stories a briefing shows and keeps for the sliders, growing with its length:
+     * an hour shows 12 of 36, a day 20 of 60, a week 25 of 70, a month or more 30 of 80.
+     */
+    fun briefingSize(window: BriefingWindow): BriefingSize {
+        val hours = (window.endMs - window.startMs).toDouble() / HOUR_MS
+        return when {
+            hours <= 1.5 -> BriefingSize(12, 36)
+            hours <= 36 -> BriefingSize(20, 60)
+            hours <= 24 * 8 -> BriefingSize(25, 70)
+            else -> BriefingSize(30, 80)
+        }
+    }
+
+    /** Longer than a day: story times need their date. */
+    private fun spansDays(window: BriefingWindow): Boolean = window.endMs - window.startMs > 26 * HOUR_MS
+
+    /** Stories past this many are ranked by the keyword rules alone before anything else. */
+    private const val PRE_RANK_LIMIT = 2500
 
     private const val HOUR_MS = 60L * 60 * 1000
 
@@ -987,10 +1023,11 @@ object BriefingEngine {
     ): String {
         fun day(ms: Long) = formatDay(ms, language)
         fun time(ms: Long) = formatTime(ms, language)
-        val whenText = if (period == BriefingPeriod.Day) {
-            "${day(window.startMs)} ${time(window.startMs)} – ${day(window.endMs)} ${time(window.endMs)}"
-        } else {
-            "${day(window.startMs)}, ${time(window.startMs)}–${time(window.endMs)}"
+        val hours = (window.endMs - window.startMs).toDouble() / HOUR_MS
+        val whenText = when {
+            hours > 72 -> "${day(window.startMs)} – ${day(window.endMs)}"
+            hours > 1.5 -> "${day(window.startMs)} ${time(window.startMs)} – ${day(window.endMs)} ${time(window.endMs)}"
+            else -> "${day(window.startMs)}, ${time(window.startMs)}–${time(window.endMs)}"
         }
         return "${BriefingText.of(language).title(period)} · $scope · $whenText"
     }
@@ -1018,7 +1055,8 @@ object BriefingEngine {
     private fun Map<Criterion, Double>.toWeightsJson(): JSONObject =
         JSONObject().also { json -> Criterion.entries.forEach { json.put(it.key, this[it] ?: 0.0) } }
 
-    private fun pageStory(entry: RatedStory, language: BriefingLanguage): JSONObject {
+    private fun pageStory(entry: RatedStory, language: BriefingLanguage, withDate: Boolean = false): JSONObject {
+        fun whenOf(ms: Long) = if (withDate) "${formatDay(ms, language)} ${formatTime(ms, language)}" else formatTime(ms, language)
         val story = entry.story
         val rating = entry.rating
         val scores = JSONObject().also { json -> Criterion.entries.forEach { json.put(it.key, clamp(rating.scores[it] ?: 0)) } }
@@ -1030,7 +1068,7 @@ object BriefingEngine {
                 JSONObject()
                     .put("title", other.title)
                     .put("source", shortSource(other.source))
-                    .put("time", formatTime(other.publishedAt, language))
+                    .put("time", whenOf(other.publishedAt))
                     .put("link", safeUrl(other.link)),
             )
         }
@@ -1038,7 +1076,7 @@ object BriefingEngine {
             .put("title", story.title)
             .put("link", safeUrl(story.link))
             .put("source", shortSource(story.source))
-            .put("time", formatTime(story.publishedAt, language))
+            .put("time", whenOf(story.publishedAt))
             .put("publishedMs", story.publishedAt)
             // Older stored summaries may predate the clean-up at storage time.
             .put("summary", SummaryText.cleanSummary(story.summary))
@@ -1073,6 +1111,7 @@ object BriefingEngine {
         aiRan: Boolean,
         digest: List<DigestBullet> = emptyList(),
         language: BriefingLanguage = BriefingLanguage.English,
+        withDates: Boolean = false,
     ): String {
         val t = BriefingText.of(language)
         // A bullet may name a report that was folded under another story; it points to that story.
@@ -1090,7 +1129,7 @@ object BriefingEngine {
             )
         }
         val data = JSONObject()
-            .put("stories", JSONArray().also { array -> stories.forEach { array.put(pageStory(it, language)) } })
+            .put("stories", JSONArray().also { array -> stories.forEach { array.put(pageStory(it, language, withDates)) } })
             .put("digest", digestJson)
             .put("storyCount", storyCount)
             .put("limit", limit)
@@ -1170,13 +1209,23 @@ object BriefingEngine {
     ): Briefing {
         val window = options.window
         val language = options.language
-        val limit = if (options.period == BriefingPeriod.Day) 20 else 12
-        // The page holds more than it shows, so moving the sliders can bring other stories up.
-        val pageSize = if (options.period == BriefingPeriod.Day) 60 else 36
+        // The page holds more than it shows (pageSize), so moving the sliders can bring other stories up.
+        val (limit, pageSize) = briefingSize(window)
         val inWindow = stories.filter { it.publishedAt >= window.startMs && it.publishedAt < window.endMs }
+        // A month holds thousands of stories. The keyword rules rank them one by one first and
+        // only the strongest go on to merging and the AI, which compare stories with each other.
+        val candidates = if (inWindow.size > PRE_RANK_LIMIT) {
+            inWindow
+                .map { it to scoreOf(ruleRating(it, emptyList(), window, options.trackedTerms, options.localTerms, options.region).scores) }
+                .sortedWith(compareByDescending<Pair<BriefingStory, Int>> { it.second }.thenByDescending { it.first.publishedAt })
+                .take(PRE_RANK_LIMIT)
+                .map { it.first }
+        } else {
+            inWindow
+        }
         // With the AI grouping the briefing, only the same link or title is merged up front; word
         // matches go to it as hints so it decides from what the stories say.
-        var rated = clusterStories(inWindow, loose = true, exactOnly = groupWithAi != null).map { (story, related) ->
+        var rated = clusterStories(candidates, loose = true, exactOnly = groupWithAi != null).map { (story, related) ->
             val rating = ruleRating(story, related, window, options.trackedTerms, options.localTerms, options.region, language)
             val score = scoreOf(rating.scores)
             RatedStory(story, related, rating, score, levelOf(score))
@@ -1280,7 +1329,7 @@ object BriefingEngine {
             generatedAtMs = options.generatedAtMs,
             itemCount = picked.size,
         )
-        return Briefing(record, renderHtml(template, title, merged, limit, inWindow.size, options.generatedAtMs, aiRan, digest, language))
+        return Briefing(record, renderHtml(template, title, merged, limit, inWindow.size, options.generatedAtMs, aiRan, digest, language, spansDays(window)))
     }
 }
 

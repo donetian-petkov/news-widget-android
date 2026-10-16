@@ -89,7 +89,15 @@ class BriefingText(
             yourRegion = "your region",
             mentions = { parts -> "Mentions ${parts.joinToString(" and ")}" },
             noneMentioned = { count, region -> "None of your $count topics${if (region.isNotBlank()) " or $region" else ""} is mentioned" },
-            title = { period -> if (period == BriefingPeriod.Day) "Daily briefing" else "Hourly briefing" },
+            title = { period ->
+                when (period) {
+                    BriefingPeriod.Hour -> "Hourly briefing"
+                    BriefingPeriod.Day -> "Daily briefing"
+                    BriefingPeriod.Week -> "Weekly briefing"
+                    BriefingPeriod.Month -> "Monthly briefing"
+                    BriefingPeriod.Custom -> "Briefing"
+                }
+            },
             countLine = { count, generated -> "$count stories · generated $generated" },
             footer = { ai ->
                 val (critical, high, notable) = thresholds
@@ -126,6 +134,8 @@ class BriefingText(
                 "moreMany" to "{n} more reports of this",
                 "storyline" to "Storyline",
                 "differentStories" to "{n} different stories",
+                "moreInStoryline" to "{n} more stories in this storyline",
+                "moreUpdates" to "{n} more updates",
                 "resolved" to "Resolved",
                 "reports" to "{n} reports",
                 "roleResolution" to "How it ended",
@@ -203,7 +213,15 @@ class BriefingText(
             yourRegion = "вашия регион",
             mentions = { parts -> "Споменава ${parts.joinToString(" и ")}" },
             noneMentioned = { count, region -> "Не се споменава нито една от вашите $count теми${if (region.isNotBlank()) " или $region" else ""}" },
-            title = { period -> if (period == BriefingPeriod.Day) "Дневен бюлетин" else "Часов бюлетин" },
+            title = { period ->
+                when (period) {
+                    BriefingPeriod.Hour -> "Часов бюлетин"
+                    BriefingPeriod.Day -> "Дневен бюлетин"
+                    BriefingPeriod.Week -> "Седмичен бюлетин"
+                    BriefingPeriod.Month -> "Месечен бюлетин"
+                    BriefingPeriod.Custom -> "Бюлетин"
+                }
+            },
             countLine = { count, generated -> "$count новини · създаден $generated" },
             footer = { ai ->
                 val (critical, high, notable) = thresholds
@@ -240,6 +258,8 @@ class BriefingText(
                 "moreMany" to "още {n} източника за същото",
                 "storyline" to "Сюжет",
                 "differentStories" to "{n} различни новини",
+                "moreInStoryline" to "още {n} новини в сюжета",
+                "moreUpdates" to "още {n} развития",
                 "resolved" to "Разрешено",
                 "reports" to "{n} съобщения",
                 "roleResolution" to "Развръзка",

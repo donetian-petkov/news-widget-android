@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +45,7 @@ import com.ainews.android.data.BriefingPeriod
 import com.ainews.android.data.Criterion
 import com.ainews.android.data.NewsRepository
 import com.ainews.android.ui.BriefingScreen
+import com.ainews.android.ui.CustomBriefingPeriod
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -78,11 +81,11 @@ class BriefingActivity : ComponentActivity() {
         var failed by remember { mutableStateOf<String?>(null) }
         val scope = rememberCoroutineScope()
 
-        fun write(period: BriefingPeriod, feeds: Set<String> = feedSourceIds) {
+        fun write(period: BriefingPeriod, feeds: Set<String> = feedSourceIds, customHours: Int? = null) {
             working = true
             failed = null
             scope.launch {
-                val record = NewsRepository.writeBriefing(period, feeds)
+                val record = NewsRepository.writeBriefing(period, feeds, customHours)
                 briefingId = record?.id
                 html = record?.id?.let(NewsRepository::briefingHtml)
                 if (html == null) failed = NewsRepository.state.value.message ?: "The briefing could not be written."
@@ -122,7 +125,7 @@ class BriefingActivity : ComponentActivity() {
                 )
             }
             else -> Column(
-                modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
+                modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
             ) {
                 Text("Briefing for $scopeLabel", style = MaterialTheme.typography.titleLarge)
@@ -138,6 +141,13 @@ class BriefingActivity : ComponentActivity() {
                 Button(onClick = { write(BriefingPeriod.Day) }, modifier = Modifier.fillMaxWidth()) {
                     Text("Daily briefing")
                 }
+                Button(onClick = { write(BriefingPeriod.Week) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Weekly briefing")
+                }
+                Button(onClick = { write(BriefingPeriod.Month) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Monthly briefing")
+                }
+                CustomBriefingPeriod(enabled = true, scope = scopeLabel) { hours -> write(BriefingPeriod.Custom, customHours = hours) }
                 // Written now for every feed, never an old saved one.
                 OutlinedButton(onClick = { write(BriefingPeriod.Hour, emptySet()) }, modifier = Modifier.fillMaxWidth()) {
                     Text("Hourly briefing · All feeds")

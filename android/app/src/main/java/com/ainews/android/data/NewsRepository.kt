@@ -1419,6 +1419,8 @@ object NewsRepository {
     suspend fun writeBriefing(
         period: BriefingPeriod,
         feedSourceIds: Set<String> = emptySet(),
+        /** Length of a custom period, 1 hour to 90 days. */
+        customHours: Int? = null,
     ): BriefingRecord? = withContext(Dispatchers.IO) {
         val current = _state.value
         val settings = current.settings
@@ -1426,7 +1428,12 @@ object NewsRepository {
         val showFiltered = WIDGET_FILTERED_FEED in feedSourceIds
         val selectedFeeds = current.feedSources.filter { it.id in feedSourceIds }
         val selectedTitles = selectedFeeds.map { it.title }.toSet()
-        val stories = current.stories
+        val window = BriefingEngine.rollingWindow(period, now, customHours)
+        // A week, a month or a long custom period reaches back into the stored stories; the
+        // ones in memory cover a remote backend, whose stories are not stored here.
+        val stored = runCatching { storyDao.storiesBetween(window.startMs, window.endMs).map { it.toModel() } }.getOrDefault(emptyList())
+        val inMemory = current.stories.filter { it.publishedAt >= window.startMs && it.publishedAt < window.endMs }
+        val stories = (inMemory + stored).distinctBy { it.id }
             .filterNot { it.isHidden }
             .filter { story ->
                 if (showFiltered) KeywordMatcher.matches(settings.keywords, story)
@@ -1517,7 +1524,7 @@ object NewsRepository {
                 options = BriefingOptions(
                     period = period,
                     scope = scope,
-                    window = BriefingEngine.rollingWindow(period, now),
+                    window = window,
                     trackedTerms = settings.keywords,
                     localTerms = if (bulgarian) listOf("bulgaria", "българ") else emptyList(),
                     region = region,

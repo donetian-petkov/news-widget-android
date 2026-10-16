@@ -365,7 +365,12 @@ private fun UnitBlock(page: BriefingPage, unit: BriefingUnit, weights: Map<Crite
                 if (unit.why.isNotBlank()) {
                     Text(unit.why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                unit.entries.forEach { StoryCard(page, it, weights, onOpenLink) }
+                // Up to three stories all show; a longer storyline shows its two strongest.
+                val shown = if (unit.entries.size <= 3) unit.entries.size else 2
+                unit.entries.take(shown).forEach { StoryCard(page, it, weights, onOpenLink) }
+                FoldRest(page, "line-${unit.label}", unit.entries.drop(shown), "moreInStoryline", storylineColor(dark)) { entry ->
+                    StoryCard(page, entry, weights, onOpenLink)
+                }
             }
         }
     }
@@ -404,7 +409,8 @@ private fun ResolvedBlock(page: BriefingPage, unit: BriefingUnit, weights: Map<C
                 if (unit.resolutionSummary.isNotBlank()) {
                     Text(unit.resolutionSummary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 }
-                unit.entries.forEach { entry ->
+                @Composable
+                fun step(entry: RankedStory) {
                     val role = entry.story.resolution?.role ?: ResolutionRole.Update
                     val roleText = page.say(
                         when (role) {
@@ -424,9 +430,45 @@ private fun ResolvedBlock(page: BriefingPage, unit: BriefingUnit, weights: Map<C
                         StoryCard(page, entry, weights, onOpenLink)
                     }
                 }
+                // How it ended and how it began stay in view; updates in between fold away when there are several.
+                val ending = unit.entries.first()
+                val others = unit.entries.drop(1).toMutableList()
+                val beginning = others.lastOrNull()?.takeIf { it.story.resolution?.role == ResolutionRole.Start }?.also { others.removeAt(others.lastIndex) }
+                step(ending)
+                if (others.size <= 1) {
+                    others.forEach { step(it) }
+                } else {
+                    FoldRest(page, "arc-${ending.story.resolution?.key}", others, "moreUpdates", resolvedColor(dark)) { step(it) }
+                }
+                beginning?.let { step(it) }
             }
         }
     }
+}
+
+/**
+ * The strongest stories stay in view; the others fold away under one line, and a fold the
+ * reader opened stays open while the screen is redrawn.
+ */
+@Composable
+private fun FoldRest(
+    page: BriefingPage,
+    key: String,
+    rest: List<RankedStory>,
+    textKey: String,
+    color: Color,
+    draw: @Composable (RankedStory) -> Unit,
+) {
+    if (rest.isEmpty()) return
+    var open by rememberSaveable(key) { mutableStateOf(false) }
+    Text(
+        "${if (open) "▾" else "▸"} " + page.say(textKey, "n" to rest.size),
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = color,
+        modifier = Modifier.clickable { open = !open }.padding(horizontal = 6.dp, vertical = 4.dp),
+    )
+    if (open) rest.forEach { draw(it) }
 }
 
 internal fun levelColor(level: PriorityLevel, dark: Boolean): Color = when (level) {
