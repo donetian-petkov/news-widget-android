@@ -27,7 +27,7 @@ data class AiCompletion(
 )
 
 class AiEnrichmentClient {
-    fun enrichWithOpenAi(apiKey: String, story: NewsStory): StoryEnrichment {
+    fun enrichWithOpenAi(apiKey: String, model: String, story: NewsStory): StoryEnrichment {
         val input = """
             Enrich this news story using only the title and summary.
             Return compact JSON with keys neutralTitle, translation, research, topicLabels.
@@ -38,24 +38,7 @@ class AiEnrichmentClient {
             Source: ${story.source}
         """.trimIndent()
 
-        val body = JSONObject()
-            .put("model", "gpt-5")
-            .put("input", input)
-            .toString()
-
-        val connection = (URL("https://api.openai.com/v1/responses").openConnection() as HttpURLConnection).apply {
-            connectTimeout = 12_000
-            readTimeout = 30_000
-            requestMethod = "POST"
-            doOutput = true
-            setRequestProperty("Authorization", "Bearer $apiKey")
-            setRequestProperty("Content-Type", "application/json")
-        }
-
-        connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-        connection.failIfRefused()
-        val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-        val json = JSONObject(responseText)
+        val json = respond(apiKey, model, input, maxOutputTokens = 900, temperature = 0.2, readTimeoutMs = 30_000)
         // Without this the usage screen and the widget both kept saying nought tokens.
         lastTokenUsage = json.readUsage()
         val outputText = json.optString("output_text").ifBlank { json.firstOutputText() }
@@ -63,7 +46,7 @@ class AiEnrichmentClient {
     }
 
     /** Runs one AI action for one story and returns just that block of text. */
-    fun runActionWithOpenAi(apiKey: String, story: NewsStory, action: StoryAiAction): String {
+    fun runActionWithOpenAi(apiKey: String, model: String, story: NewsStory, action: StoryAiAction): String {
         val instruction = when (action) {
             // Headline metaphors ("the Black Sea hit the harvest") must not come back as facts.
             StoryAiAction.Summary -> "Write a short factual summary in at most three sentences. ${BriefingEngine.LITERAL_FACTS_RULE}"
@@ -84,26 +67,7 @@ class AiEnrichmentClient {
             Source: ${story.source}
         """.trimIndent()
 
-        val body = JSONObject()
-            .put("model", "gpt-5")
-            .put("input", input)
-            .toString()
-
-        val connection = (URL("https://api.openai.com/v1/responses").openConnection() as HttpURLConnection).apply {
-            connectTimeout = 12_000
-            readTimeout = 30_000
-            requestMethod = "POST"
-            doOutput = true
-            setRequestProperty("Authorization", "Bearer $apiKey")
-            setRequestProperty("Content-Type", "application/json")
-        }
-
-        connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-        // A refused request used to surface as nothing but the address, which said nothing
-        // about a wrong key, a model the account cannot use, or a spent quota.
-        connection.failIfRefused()
-        val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-        val json = JSONObject(responseText)
+        val json = respond(apiKey, model, input, maxOutputTokens = 700, temperature = 0.2, readTimeoutMs = 30_000)
         lastTokenUsage = json.readUsage()
         return json.optString("output_text").trim().ifBlank { json.firstOutputText() }
     }
@@ -114,30 +78,70 @@ class AiEnrichmentClient {
      * Several run at once, so the token counts come back with the answer instead of
      * through [lastTokenUsage].
      */
-    fun completeWithOpenAi(apiKey: String, input: String): AiCompletion {
-        val body = JSONObject()
-            .put("model", "gpt-5")
-            .put("input", input)
-            .put("reasoning", JSONObject().put("effort", "low"))
-            .toString()
-
-        val connection = (URL("https://api.openai.com/v1/responses").openConnection() as HttpURLConnection).apply {
-            connectTimeout = 12_000
-            readTimeout = 120_000
-            requestMethod = "POST"
-            doOutput = true
-            setRequestProperty("Authorization", "Bearer $apiKey")
-            setRequestProperty("Content-Type", "application/json")
-        }
-
-        connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-        connection.failIfRefused()
-        val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-        val json = JSONObject(responseText)
+    fun completeWithOpenAi(apiKey: String, model: String, input: String, maxOutputTokens: Int): AiCompletion {
+        val json = respond(apiKey, model, input, maxOutputTokens, temperature = 0.0, readTimeoutMs = 120_000)
         return AiCompletion(
             text = json.optString("output_text").trim().ifBlank { json.firstOutputText() },
             usage = json.readUsage(),
         )
+    }
+
+    /**
+     * One request to the Responses API. Newer reasoning models reject `temperature` and spend
+     * part of the output budget on thinking. Rather than keep a list of which model is which,
+     * a model that rejects a parameter is remembered and asked again without it, with room
+     * for its reasoning, as the Mac widget does.
+     */
+    private fun respond(
+        apiKey: String,
+        model: String,
+        input: String,
+        maxOutputTokens: Int,
+        temperature: Double,
+        readTimeoutMs: Int,
+    ): JSONObject {
+        repeat(3) {
+            val reasoning = model in modelsWithoutTemperature
+            val body = JSONObject()
+                .put("model", model)
+                .put("input", input)
+                .put("max_output_tokens", if (reasoning) (maxOutputTokens * 1.5).toInt() + 400 else maxOutputTokens)
+            if (!reasoning) body.put("temperature", temperature)
+            if (reasoning && model !in modelsWithoutReasoningEffort) body.put("reasoning", JSONObject().put("effort", "low"))
+
+            val connection = (URL("https://api.openai.com/v1/responses").openConnection() as HttpURLConnection).apply {
+                connectTimeout = 12_000
+                readTimeout = readTimeoutMs
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Authorization", "Bearer $apiKey")
+                setRequestProperty("Content-Type", "application/json")
+            }
+            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val refusal = runCatching { connection.failIfRefused() }.exceptionOrNull()
+            if (refusal == null) {
+                return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            }
+            val message = refusal.message.orEmpty()
+            when {
+                TEMPERATURE_REJECTED.containsMatchIn(message) && model !in modelsWithoutTemperature -> modelsWithoutTemperature.add(model)
+                REASONING_REJECTED.containsMatchIn(message) && UNSUPPORTED.containsMatchIn(message) && model !in modelsWithoutReasoningEffort ->
+                    modelsWithoutReasoningEffort.add(model)
+                else -> throw refusal
+            }
+        }
+        error("$model rejected every request shape")
+    }
+
+    /** A plain GET for the model and price lists; throws with the reason when refused. */
+    fun getText(url: String, headers: Map<String, String>): String {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 12_000
+            readTimeout = 15_000
+            headers.forEach { (name, value) -> setRequestProperty(name, value) }
+        }
+        connection.failIfRefused()
+        return connection.inputStream.bufferedReader().use { it.readText() }
     }
 
     /**
@@ -173,6 +177,16 @@ class AiEnrichmentClient {
             }
         }
         return ""
+    }
+
+    private companion object {
+        val TEMPERATURE_REJECTED = Regex("unsupported parameter.*temperature|temperature.*not supported", RegexOption.IGNORE_CASE)
+        val REASONING_REJECTED = Regex("reasoning", RegexOption.IGNORE_CASE)
+        val UNSUPPORTED = Regex("unsupported|not supported", RegexOption.IGNORE_CASE)
+
+        /** Models that turned out to reject a parameter, for the life of the process. */
+        val modelsWithoutTemperature: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+        val modelsWithoutReasoningEffort: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
     }
 
     /** Token counts reported by the last provider call, so usage can show real numbers. */

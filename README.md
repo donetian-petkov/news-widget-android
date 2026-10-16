@@ -88,6 +88,12 @@ Implemented so far:
   briefing button writes one for that widget's feeds, and the drawer lists
   them all. `scripts/sync-briefing-page.mts` regenerates the page from the Mac
   widget's renderer.
+- Live AI models: the app reads the provider's own model list (cached for
+  offline starts, refreshed every six hours and when the key changes), with
+  prices from OpenRouter's public catalogue. Each use (story summaries, quick
+  tasks, research and briefings) defaults to the newest model in its price
+  range and can be changed in Settings → Models, which shows the price next to
+  every model; a picked model that the provider drops is replaced with a notice.
 - AI usage totals by action, pending-story count, and a reset.
 
 ## Build

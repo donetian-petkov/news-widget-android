@@ -102,6 +102,7 @@ import com.ainews.android.data.BackendMode
 import com.ainews.android.data.DigestEntry
 import com.ainews.android.data.BriefingPeriod
 import com.ainews.android.data.BriefingRecord
+import com.ainews.android.data.ModelCatalogState
 import com.ainews.android.data.FeedFetchRecord
 import com.ainews.android.data.FeedHealth
 import com.ainews.android.data.FeedSource
@@ -278,6 +279,7 @@ fun AiNewsApp() {
                         onSaveKey = NewsRepository::saveProviderKey,
 
                         onClearKey = NewsRepository::clearProviderKey,
+                        models = state.models,
                     )
 
                     AppScreen.Hidden -> HiddenStoriesScreen(
@@ -1772,6 +1774,7 @@ private fun SettingsScreen(
     onSave: (RuntimeSettings) -> Unit,
     onSaveKey: (String) -> Unit,
     onClearKey: () -> Unit,
+    models: ModelCatalogState,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1914,6 +1917,17 @@ private fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
+            }
+        }
+
+        item {
+            SettingsSection("Models") {
+                ModelSettings(
+                    models = models,
+                    keySaved = settings.providerKeySaved,
+                    onChoose = NewsRepository::chooseModel,
+                    onRefresh = { NewsRepository.refreshModels(force = true) },
+                )
             }
         }
 

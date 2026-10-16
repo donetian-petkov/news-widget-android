@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -39,6 +40,8 @@ object NewsRepository {
     private lateinit var runtimePreferences: RuntimePreferences
     private lateinit var secureProviderKeyStore: SecureProviderKeyStore
     private lateinit var briefingStore: BriefingStore
+    private lateinit var modelCatalogStore: ModelCatalogStore
+    private val modelRefreshLock = kotlinx.coroutines.sync.Mutex()
 
     /** AI ratings per story, so the daily briefing and repeat runs do not pay for them again. */
     private val briefingAiRatings = java.util.concurrent.ConcurrentHashMap<String, AiStoryRating>()
@@ -127,6 +130,27 @@ object NewsRepository {
         secureProviderKeyStore = SecureProviderKeyStore(appContext)
         briefingStore = BriefingStore(java.io.File(appContext.filesDir, "briefings"))
         _state.update { it.copy(briefings = briefingStore.list()) }
+        modelCatalogStore = ModelCatalogStore(java.io.File(appContext.filesDir, "model-catalog.json"))
+        val savedCatalog = modelCatalogStore.load()
+        _state.update {
+            it.copy(
+                models = ModelCatalogState(
+                    provider = savedCatalog.provider,
+                    models = savedCatalog.provider?.let { provider -> ModelCatalog.withPrices(provider, savedCatalog.models, savedCatalog.prices) }.orEmpty(),
+                    choices = savedCatalog.choices,
+                    fetchedAtMs = savedCatalog.fetchedAtMs,
+                ),
+            )
+        }
+        // The provider's model list, read at start (the saved one serves offline) and every
+        // six hours, so new models show up and retired ones drop out.
+        repositoryScope.launch {
+            kotlinx.coroutines.delay(3_000)
+            while (true) {
+                runCatching { refreshModels(force = false) }
+                kotlinx.coroutines.delay(MODEL_REFRESH_MS / 6)
+            }
+        }
 
         // AI may have been left on from a previous run; make sure it is counting down.
         repositoryScope.launch {
@@ -334,6 +358,7 @@ object NewsRepository {
                     )
                 },
         )
+        val providerChanged = normalized.aiProvider != _state.value.settings.aiProvider
         _state.update { current ->
             persistSettings(normalized)
             if (current.runtime.runtimeEnabled) {
@@ -345,6 +370,8 @@ object NewsRepository {
                 message = "Settings saved",
             )
         }
+        // Another provider has its own models.
+        if (providerChanged) repositoryScope.launch { refreshModels(force = true) }
     }
 
     fun moveWidgetStack(offset: Int) {
@@ -370,6 +397,92 @@ object NewsRepository {
         _state.update {
             it.copy(message = if (saved) "Provider key saved" else "That key could not be saved")
         }
+        // A new key can see different models.
+        if (saved) repositoryScope.launch { refreshModels(force = true) }
+    }
+
+    /**
+     * Reads the provider's model list and prices, then settles the model for each kind: a
+     * model the reader picked stays while it is offered; when the provider drops it, the
+     * default takes over and the reader is told. With [force] off it only runs when the list
+     * is older than six hours or belongs to another provider. A failed read keeps the last list.
+     */
+    suspend fun refreshModels(force: Boolean): Unit = withContext(Dispatchers.IO) {
+        modelRefreshLock.withLock {
+            val provider = CatalogProvider.of(_state.value.settings.aiProvider)
+            val apiKey = secureProviderKeyStore.load()
+            val current = _state.value.models
+            if (provider == null || apiKey.isNullOrBlank()) return@withLock
+            val fresh = current.provider == provider && current.models.isNotEmpty() &&
+                System.currentTimeMillis() - current.fetchedAtMs < MODEL_REFRESH_MS
+            if (!force && fresh) return@withLock
+            _state.update { it.copy(models = it.models.copy(refreshing = true)) }
+            val saved = modelCatalogStore.load()
+            val result = runCatching {
+                ModelCatalog.fetch(provider, apiKey, aiEnrichmentClient::getText, saved.prices.takeIf { saved.provider == provider }.orEmpty())
+            }
+            result.onFailure { failure ->
+                _state.update { it.copy(models = it.models.copy(refreshing = false, error = "Could not read the model list: ${failure.message}")) }
+            }
+            val (catalog, prices) = result.getOrNull() ?: return@withLock
+            if (catalog.isEmpty()) {
+                _state.update { it.copy(models = it.models.copy(refreshing = false, error = "${provider.name} listed no text models for this key")) }
+                return@withLock
+            }
+            val models = ModelCatalog.withPrices(provider, catalog, prices)
+            val notices = mutableListOf<String>()
+            val choices = ModelKind.entries.associateWith { kind ->
+                val resolved = ModelCatalog.resolveChoice(kind, current.choices[kind], models)
+                resolved.replaced?.let { gone ->
+                    notices.add("$gone is no longer offered by ${provider.name}; ${kind.label.lowercase()} now use ${resolved.choice.model}")
+                }
+                resolved.choice
+            }
+            val now = System.currentTimeMillis()
+            modelCatalogStore.save(ModelCatalogStore.Saved(provider, catalog, prices, choices, now))
+            _state.update {
+                it.copy(
+                    models = ModelCatalogState(provider, models, choices, now, refreshing = false, error = null),
+                    message = notices.joinToString(" · ").ifBlank { it.message },
+                )
+            }
+        }
+    }
+
+    /** The reader's pick for one kind; null goes back to the automatic default. */
+    fun chooseModel(kind: ModelKind, modelId: String?) {
+        val current = _state.value.models
+        val provider = current.provider ?: return
+        val choice = if (modelId == null) {
+            ModelCatalog.resolveChoice(kind, null, current.models).choice
+        } else {
+            ModelChoice(modelId, byUser = true)
+        }
+        val choices = current.choices + (kind to choice)
+        val saved = modelCatalogStore.load()
+        modelCatalogStore.save(ModelCatalogStore.Saved(provider, saved.models, saved.prices, choices, saved.fetchedAtMs))
+        _state.update {
+            it.copy(
+                models = it.models.copy(choices = choices),
+                message = "${kind.label}: ${choice.model}${if (modelId == null) " (automatic)" else ""}",
+            )
+        }
+    }
+
+    /**
+     * The model for one kind of call. With no list yet (first start, or a new key) it reads
+     * one first; a stale list is refreshed in the background.
+     */
+    private suspend fun modelFor(kind: ModelKind): String {
+        val current = _state.value.models
+        val provider = CatalogProvider.of(_state.value.settings.aiProvider)
+        if (current.provider != provider || current.modelFor(kind) == null) {
+            refreshModels(force = true)
+        } else if (System.currentTimeMillis() - current.fetchedAtMs > MODEL_REFRESH_MS) {
+            repositoryScope.launch { refreshModels(force = false) }
+        }
+        return _state.value.models.modelFor(kind)
+            ?: error(_state.value.models.error ?: "No model list from the provider yet")
     }
 
     /**
@@ -382,7 +495,7 @@ object NewsRepository {
         val story = _state.value.visibleStories.firstOrNull()
             ?: return@withContext "No story to try it on yet"
         val result = runCatching {
-            aiEnrichmentClient.runActionWithOpenAi(key, story, StoryAiAction.Summary)
+            aiEnrichmentClient.runActionWithOpenAi(key, modelFor(ModelKind.Summary), story, StoryAiAction.Summary)
         }
         android.util.Log.i("AiNewsKeyTest", "asked the provider, success=${result.isSuccess}")
         val message = result.fold(
@@ -611,12 +724,13 @@ object NewsRepository {
 
         var enrichedCount = 0
 
+        val enrichmentModel = if (paidEnrichment) runCatching { modelFor(ModelKind.Summary) }.getOrNull() else null
         withContext(Dispatchers.IO) {
             candidates.forEach { story ->
                 val enrichment = runCatching {
                     when {
-                        settings.aiProvider == AiProvider.OpenAI && !apiKey.isNullOrBlank() ->
-                            aiEnrichmentClient.enrichWithOpenAi(apiKey, story)
+                        enrichmentModel != null && !apiKey.isNullOrBlank() ->
+                            aiEnrichmentClient.enrichWithOpenAi(apiKey, enrichmentModel, story)
 
                         else -> aiEnrichmentClient.enrichLocally(story)
                     }
@@ -1132,7 +1246,12 @@ object NewsRepository {
         val result = withContext(Dispatchers.IO) {
             runCatching {
                 if (paid) {
-                    aiEnrichmentClient.runActionWithOpenAi(apiKey!!, story, action)
+                    val kind = when (action) {
+                        StoryAiAction.Summary -> ModelKind.Summary
+                        StoryAiAction.Research -> ModelKind.Research
+                        StoryAiAction.Translation, StoryAiAction.NeutralTitle -> ModelKind.Ask
+                    }
+                    aiEnrichmentClient.runActionWithOpenAi(apiKey!!, modelFor(kind), story, action)
                 } else {
                     aiEnrichmentClient.runActionLocally(story, action)
                 }
@@ -1333,15 +1452,18 @@ object NewsRepository {
         val pausedSources = current.feedSources.filterNot { it.aiEnabled }.map { it.title }.toSet()
         val sourceById = briefingStories.associate { it.id to it.source }
 
-        suspend fun complete(action: String, detail: String, prompt: String): String {
+        // Briefings use the research model: by default the newest mid-priced one, unless the
+        // reader picked another in settings.
+        val briefingModel = if (aiAllowed) runCatching { modelFor(ModelKind.Research) }.getOrNull() else null
+        suspend fun complete(action: String, detail: String, prompt: String, maxOutputTokens: Int): String {
             check(budgetLeft()) { "AI budget reached" }
             spentCents.addAndGet(OPENAI_ACTION_ESTIMATE_CENTS)
-            val completion = aiEnrichmentClient.completeWithOpenAi(apiKey!!, prompt)
+            val completion = aiEnrichmentClient.completeWithOpenAi(apiKey!!, checkNotNull(briefingModel) { "No model list" }, prompt, maxOutputTokens)
             recordUsage(action, "openai", detail, OPENAI_ACTION_ESTIMATE_CENTS, completion.usage.total)
             return completion.text
         }
 
-        val rateWithAi: (suspend (List<AiRatingCandidate>) -> List<AiStoryRating>)? = if (!aiAllowed) null else { candidates ->
+        val rateWithAi: (suspend (List<AiRatingCandidate>) -> List<AiStoryRating>)? = if (briefingModel == null) null else { candidates ->
             val allowed = candidates.filter { sourceById[it.id] !in pausedSources }
             // Keyed by language too: switching it must not reuse notes written in the other one.
             fun cacheKey(id: String) = "${language.key}::$id"
@@ -1350,7 +1472,12 @@ object NewsRepository {
             if (missing.isEmpty()) {
                 cached
             } else {
-                val text = complete("Briefing rating", "${missing.size} stories", BriefingEngine.buildAiRatingPrompt(missing, bulgarian, region))
+                val text = complete(
+                    "Briefing rating",
+                    "${missing.size} stories",
+                    BriefingEngine.buildAiRatingPrompt(missing, bulgarian, region),
+                    (300 + missing.size * 320).coerceIn(800, 9000),
+                )
                 val fresh = BriefingEngine.parseAiRatings(text)
                 check(fresh.isNotEmpty()) { "AI returned no ratings" }
                 if (briefingAiRatings.size > 3000) briefingAiRatings.clear()
@@ -1358,11 +1485,13 @@ object NewsRepository {
                 cached + fresh
             }
         }
-        val groupWithAi: (suspend (List<GroupingItem>) -> StoryGrouping)? = if (!aiAllowed) null else { items ->
-            BriefingEngine.parseGrouping(complete("Briefing grouping", "${items.size} stories", BriefingEngine.buildGroupingPrompt(items, language)))
+        val groupWithAi: (suspend (List<GroupingItem>) -> StoryGrouping)? = if (briefingModel == null) null else { items ->
+            BriefingEngine.parseGrouping(
+                complete("Briefing grouping", "${items.size} stories", BriefingEngine.buildGroupingPrompt(items, language), (300 + items.size * 60).coerceIn(800, 5000)),
+            )
         }
-        val digestWithAi: (suspend (List<DigestItem>) -> List<DigestBullet>)? = if (!aiAllowed) null else { items ->
-            val bullets = BriefingEngine.parseDigest(complete("Briefing summary", "${items.size} stories", BriefingEngine.buildDigestPrompt(items, language, region)))
+        val digestWithAi: (suspend (List<DigestItem>) -> List<DigestBullet>)? = if (briefingModel == null) null else { items ->
+            val bullets = BriefingEngine.parseDigest(complete("Briefing summary", "${items.size} stories", BriefingEngine.buildDigestPrompt(items, language, region), 1500))
             check(bullets.isNotEmpty()) { "AI returned no summary" }
             bullets
         }
@@ -1630,6 +1759,9 @@ object NewsRepository {
     private const val AI_SESSION_MILLIS = 6L * 60 * 60 * 1000
     private const val OPENAI_ENRICHMENT_ESTIMATE_CENTS = 2
     private const val OPENAI_ACTION_ESTIMATE_CENTS = 1
+
+    /** How long a model list stays fresh before it is read again. */
+    private const val MODEL_REFRESH_MS = 6L * 60 * 60 * 1000
     private val CYRILLIC = Regex("\\p{IsCyrillic}")
     private const val HISTORY_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000
 }

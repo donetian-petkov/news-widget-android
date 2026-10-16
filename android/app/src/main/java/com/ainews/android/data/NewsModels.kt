@@ -316,6 +316,8 @@ data class NewsUiState(
     val fetchHistory: List<FeedFetchRecord> = emptyList(),
     val digests: List<DigestEntry> = emptyList(),
     val briefings: List<BriefingRecord> = emptyList(),
+    /** The provider's live model list, its prices and the model chosen for each kind. */
+    val models: ModelCatalogState = ModelCatalogState(),
     val usageRecords: List<AiUsageRecord> = emptyList(),
     val schedules: List<NewsSchedule> = emptyList(),
     val message: String? = null,
