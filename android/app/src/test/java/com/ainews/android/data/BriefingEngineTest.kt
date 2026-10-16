@@ -42,16 +42,11 @@ class BriefingEngineTest {
     )
 
     /** Only what the page needs: the data script, so tests can read what was rendered. */
-    private val template = "<title>{{TITLE}}</title>{{COUNT}}|{{GENERATED}}|{{RATED_BY}}" +
+    private val template = "<html lang=\"{{LANG}}\"><title>{{TITLE}}</title>{{COUNT_LINE}}|{{FOOTER}}" +
         "<script id=\"briefing-data\" type=\"application/json\">{{DATA_JSON}}</script>"
 
     private fun pageData(html: String): JSONObject =
         JSONObject(html.substringAfter("application/json\">").substringBefore("</script>"))
-
-    @Test
-    fun previousHourIsTheLastFullClockHour() {
-        assertEquals(hour, BriefingEngine.previousHourWindow(at(14, 5)))
-    }
 
     @Test
     fun ratesADeadlyDisasterAboveASportsStoryAndQuotesTheWords() {
@@ -276,27 +271,162 @@ class BriefingEngineTest {
     }
 
     @Test
-    fun storeSavesReloadsReplacesAScheduledHourAndPrunes() = runBlocking {
+    fun storeSavesReloadsAndPrunes() = runBlocking {
         val dir = Files.createTempDirectory("briefings").toFile()
         val store = BriefingStore(dir, keep = 2)
-        suspend fun make(h: Int, scheduled: Boolean, generatedAt: Long) = BriefingEngine.build(
+        suspend fun make(h: Int, generatedAt: Long) = BriefingEngine.build(
             emptyList(),
-            BriefingOptions(BriefingPeriod.Hour, "All", BriefingWindow(at(h), at(h + 1)), scheduled = scheduled, generatedAtMs = generatedAt),
+            BriefingOptions(BriefingPeriod.Hour, "All", BriefingWindow(at(h), at(h + 1)), generatedAtMs = generatedAt),
             template,
         )
-        val first = make(10, true, 1)
+        val first = make(10, 1)
         store.save(first)
-        store.save(make(11, true, 2))
-        val redo = make(11, true, 3)
-        store.save(redo)
-        store.save(make(11, false, 4))
+        val second = make(11, 2)
+        store.save(second)
+        val third = make(12, 3)
+        store.save(third)
 
         val reloaded = BriefingStore(dir, keep = 2)
-        assertEquals(listOf(at(11) to false, at(11) to true), reloaded.list().map { it.windowStartMs to it.scheduled })
-        assertTrue(reloaded.hasScheduledWindow(at(11)))
-        assertTrue(reloaded.readHtml(redo.record.id)!!.contains("briefing-data"))
+        assertEquals(listOf(at(12), at(11)), reloaded.list().map { it.windowStartMs })
+        assertTrue(reloaded.readHtml(third.record.id)!!.contains("briefing-data"))
         assertNull(reloaded.readHtml(first.record.id))
         assertNull(reloaded.readHtml("../index"))
         assertEquals(2, dir.listFiles { file: File -> file.name.endsWith(".html") }!!.size)
+    }
+
+    @Test
+    fun mergesReportsThatSpellNamesInAnotherScriptOrQuoteOtherLinesOfOneStatement() {
+        val clusters = BriefingEngine.clusterStories(
+            listOf(
+                story(id = "tesla-a", title = "Първата летяща кола е тук: Tesla представи Roadster (ВИДЕО)"),
+                story(id = "tesla-b", title = "\"Тесла\" демонстрира летяща версия на модела си \"Роудстър\""),
+                story(id = "pm-a", title = "Костов, Борисов, Петков и Денков призоваха Радев да защити националната сигурност"),
+                story(id = "pm-b", title = "Костов, Борисов и Петков: Мирът не се гарантира с надеждата, че Путин ще ни пощади"),
+                story(id = "other", title = "Радев: Борисов носи отговорност за бюджета"),
+                story(id = "sport", title = "Стоичков избухна след драмата на ЦСКА. Посочи виновника"),
+            ),
+        )
+        val groups = clusters.map { (lead, related) -> (listOf(lead.id) + related.map { it.id }).sorted() }
+        assertEquals(4, groups.size)
+        assertTrue(listOf("tesla-a", "tesla-b") in groups)
+        assertTrue(listOf("pm-a", "pm-b") in groups)
+        assertTrue(listOf("sport") in groups)
+        // Without the loose names rule only the Tesla pair (most words shared) merges.
+        assertEquals(5, BriefingEngine.clusterStories(clusters.flatMap { listOf(it.first) + it.second }, loose = false).size)
+    }
+
+    @Test
+    fun keepsASportsStoryOutOfAStorylineAboutSomethingElse() {
+        val grouping = BriefingEngine.parseGrouping(
+            """{"storylines":[{"label":"Ukraine war","why":"Both are about the war","ids":["starlink","ships","football"]},
+               {"label":"CSKA","ids":["cska","coach"]}]}""",
+        )
+        val grouped = BriefingEngine.applyGrouping(
+            listOf(
+                entry("starlink", 60, ImpactDimension.Politics),
+                entry("ships", 46, ImpactDimension.Society),
+                entry("football", 43, ImpactDimension.Sports),
+                entry("cska", 30, ImpactDimension.Sports),
+                entry("coach", 28, ImpactDimension.Sports),
+            ),
+            grouping,
+        )
+        assertEquals(listOf("Ukraine war", "Ukraine war", null, "CSKA", "CSKA"), grouped.map { it.storyline })
+        assertEquals("Both are about the war", grouped.first().storylineWhy)
+    }
+
+    @Test
+    fun letsTheAiDecideOnNameOnlyMatchesShowsItsReasonAndCountsTheMergedSources() = runBlocking {
+        val seen = mutableListOf<GroupingItem>()
+        val stories = listOf(
+            story(id = "pm-a", title = "Костов, Борисов, Петков и Денков призоваха Радев да защити националната сигурност", source = "Свободна точка"),
+            story(id = "pm-b", title = "Костов, Борисов и Петков: Мирът не се гарантира с надеждата, че Путин ще ни пощади", source = "dnevnik.bg"),
+            story(id = "tesla", title = "Tesla представи летящ Roadster", source = "dnevnik.bg"),
+        )
+        val briefing = BriefingEngine.build(
+            stories = stories,
+            options = BriefingOptions(BriefingPeriod.Hour, "All", hour),
+            template = template,
+            groupWithAi = { items ->
+                seen.addAll(items)
+                BriefingEngine.parseGrouping("""{"duplicates":[{"ids":["pm-a","pm-b"],"why":"Both report the joint statement"}]}""")
+            },
+        )
+        assertEquals(listOf("pm-b"), seen.first { it.id == "pm-a" }.maybeSameAs)
+        assertTrue(seen.first { it.id == "tesla" }.maybeSameAs.isEmpty())
+        val page = BriefingPageReader.parse(briefing.html)!!
+        val lead = page.stories.first { it.related.isNotEmpty() }
+        assertEquals("Both report the joint statement", lead.duplicateWhy)
+        assertEquals(1, lead.scores[Criterion.Coverage])
+        assertEquals("Reported by Свободна точка, dnevnik.bg", lead.notes[Criterion.Coverage])
+
+        // No AI answer: the title rule's guess merges them instead.
+        val fallback = BriefingEngine.build(stories, BriefingOptions(BriefingPeriod.Hour, "All", hour), template, groupWithAi = { error("down") })
+        assertEquals(2, BriefingPageReader.parse(fallback.html)!!.stories.size)
+    }
+
+    @Test
+    fun shipsTheAiSummaryWithEachLinePointingAtItsStoryFoldedReportsIncluded() = runBlocking {
+        val bullets = BriefingEngine.parseDigest(
+            """{"bullets":[{"kind":"critical","text":"Former PMs press Radev","ids":["pm-a","pm-b"]},
+               {"kind":"odd","text":"Tesla flies","ids":["tesla","ghost"]},{"kind":"leading","text":""}]}""",
+        )
+        assertEquals(listOf(DigestKind.Critical, DigestKind.Leading), bullets.map { it.kind })
+        assertTrue(BriefingEngine.parseDigest("no json").isEmpty())
+        val briefing = BriefingEngine.build(
+            stories = listOf(
+                story(id = "pm-a", title = "Костов, Борисов, Петков и Денков призоваха Радев", source = "A"),
+                story(id = "pm-b", title = "Бивши премиери призоваха Радев", source = "B"),
+                story(id = "tesla", title = "Tesla представи летящ Roadster", source = "C"),
+            ),
+            options = BriefingOptions(BriefingPeriod.Hour, "All", hour),
+            template = template,
+            groupWithAi = { StoryGrouping(duplicates = listOf(listOf("pm-a", "pm-b"))) },
+            digestWithAi = { items ->
+                assertEquals(2, items.size)
+                bullets
+            },
+        )
+        val page = BriefingPageReader.parse(briefing.html)!!
+        assertEquals(2, page.digest.size)
+        assertEquals(1, page.digest[0].targets.size)
+        assertTrue(page.stories[page.digest[0].targets.single()].title.startsWith("Костов"))
+        assertTrue(page.stories[page.digest[1].targets.single()].title.startsWith("Tesla"))
+
+        val glance = BriefingPageReader.glance(page, BriefingPageReader.rank(page, BriefingEngine.DEFAULT_WEIGHTS))
+        assertEquals(listOf("Former PMs press Radev", "Tesla flies"), glance.map { it.text })
+        assertFalse(glance.any { it.marked })
+    }
+
+    @Test
+    fun writesThePageAndTheKeywordNotesInBulgarianWhenTheBriefingIsInBulgarian() = runBlocking {
+        val realTemplate = File("src/main/assets/briefing/page.html").readText()
+        val briefing = BriefingEngine.build(
+            stories = listOf(story(title = "Нов закон за пътищата", source = "БНТ")),
+            options = BriefingOptions(BriefingPeriod.Day, "Всички източници", hour, language = BriefingLanguage.Bulgarian),
+            template = realTemplate,
+        )
+        assertTrue(briefing.record.title.startsWith("Дневен бюлетин · Всички източници"))
+        assertTrue(briefing.html.contains("<html lang=\"bg\">"))
+        assertTrue(briefing.html.contains("Как се оценяват новините"))
+        assertFalse(briefing.html.contains("How stories are rated"))
+        assertFalse(briefing.html.contains("{{"))
+        val page = BriefingPageReader.parse(briefing.html)!!
+        val story = page.stories.single()
+        assertEquals("Съобщава само БНТ", story.notes[Criterion.Coverage])
+        assertEquals("Не се споменават жертви, ранени, щети или загубени пари", story.notes[Criterion.Severity])
+        assertEquals("Тежест", page.text.criteria[Criterion.Severity])
+        assertEquals("Важно", page.text.levels[PriorityLevel.High])
+        assertEquals("Накратко", page.say("atAGlance"))
+        assertEquals("Защо „Важно“ · 65/100", page.say("why", "level" to "Важно", "score" to 65))
+    }
+
+    @Test
+    fun everyBriefingPromptCarriesTheLiteralFactsRule() {
+        val rule = BriefingEngine.LITERAL_FACTS_RULE
+        assertTrue(BriefingEngine.buildAiRatingPrompt(emptyList(), true, "България").contains(rule))
+        assertTrue(BriefingEngine.buildGroupingPrompt(emptyList(), BriefingLanguage.Bulgarian).contains(rule))
+        assertTrue(BriefingEngine.buildDigestPrompt(emptyList(), BriefingLanguage.Bulgarian, "България").contains(rule))
+        assertTrue(BriefingEngine.buildGroupingPrompt(emptyList(), BriefingLanguage.Bulgarian).contains("Write labels and reasons in Bulgarian"))
     }
 }

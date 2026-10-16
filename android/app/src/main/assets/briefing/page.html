@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{LANG}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,11 +7,13 @@
 <style>
   :root { --bg: #f6f7f9; --card: #ffffff; --text: #16181d; --muted: #616875; --border: #e2e5ea; --accent: #2f6fde;
     --critical: #c62828; --high: #e07a00; --notable: #2f6fde; --routine: #8a919c; --chip: #eef1f5;
-    --economic: #1f8a4c; --political: #6a4cc7; --social: #c2410c; --security: #b42318; }
+    --economic: #1f8a4c; --political: #6a4cc7; --social: #c2410c; --security: #b42318;
+    --storyline: #4b5bbd; --storyline-bg: #eceefb; }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #111317; --card: #1a1d23; --text: #e8eaee; --muted: #9aa1ad; --border: #2a2e36; --accent: #7aa7ff;
       --critical: #ff6b6b; --high: #ffa94d; --notable: #7aa7ff; --routine: #8a919c; --chip: #242830;
-      --economic: #4ade80; --political: #a78bfa; --social: #fb923c; --security: #f87171; }
+      --economic: #4ade80; --political: #a78bfa; --social: #fb923c; --security: #f87171;
+      --storyline: #4652a8; --storyline-bg: #1c1f33; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -75,19 +77,42 @@
   .angle-social { color: var(--social); }
   .angle-security { color: var(--security); }
   .rated { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 13px; color: var(--muted); }
-  .rated-head { margin: 0 0 4px; font-weight: 600; }
+  .rated-head { font-weight: 600; cursor: pointer; width: fit-content; }
+  .rated[open] .rated-head { margin-bottom: 4px; }
   .rated ul { list-style: none; margin: 0; padding: 0; }
-  .rated li { display: grid; grid-template-columns: 74px 34px 34px 1fr; gap: 6px; align-items: baseline; }
+  .rated li { display: grid; grid-template-columns: 88px 34px 34px 1fr; gap: 6px; align-items: baseline; }
   .cname { color: var(--text); white-space: nowrap; overflow-wrap: normal; }
   .dots { letter-spacing: 1px; color: var(--accent); font-size: 11px; white-space: nowrap; }
   .pts { font-variant-numeric: tabular-nums; color: var(--text); }
   .rated li.zero, .rated li.zero .cname, .rated li.zero .pts { opacity: .6; }
   .rules-tag { font-style: italic; }
-  .storyline { border: 1px solid var(--border); border-radius: 14px; padding: 10px 10px 2px; margin-bottom: 12px; background: var(--chip); }
-  .storyline-head { display: flex; align-items: baseline; gap: 10px; padding: 0 6px 8px; }
+  html { scroll-behavior: smooth; }
+  article { scroll-margin-top: 16px; }
+  article:target { box-shadow: 0 0 0 2px var(--accent); }
+  .glance { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px 14px; margin-top: 18px; }
+  .glance h2 { margin: 0 0 6px; }
+  .glance ul { margin: 0; padding-left: 18px; }
+  .glance li { margin: 6px 0; }
+  .glance a { color: var(--text); }
+  .glance li::marker { color: var(--routine); font-size: 1.15em; }
+  .glance li.level-critical::marker { color: var(--critical); }
+  .glance li.level-high::marker { color: var(--high); }
+  .glance li.level-notable::marker { color: var(--notable); }
+  .glance-tag { font-size: 12.5px; font-weight: 600; color: var(--political); margin-right: 8px; }
+  .glance-text ~ a { font-size: 12.5px; white-space: nowrap; color: var(--accent); }
+  .glance-by { margin-left: 8px; font-size: 11.5px; font-weight: 400; letter-spacing: 0; text-transform: none; }
+  .dupe-why { font-style: italic; }
+  /* A storyline is framed in its own colour with a header bar, so it reads as one group
+     and it is obvious where it ends and the next, unrelated story begins. */
+  .storyline { border: 2px solid var(--storyline); border-radius: 14px; margin: 26px 0; background: var(--storyline-bg); overflow: hidden; }
+  .storyline-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 10px 16px; background: var(--storyline); color: #fff; }
+  .storyline-kicker { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; opacity: .85; }
+  .storyline-count { opacity: .85; }
+  .storyline-why { margin: 10px 16px 0; font-size: 13px; color: var(--muted); }
+  .storyline > article { margin: 10px 10px 0; }
+  .storyline > article:last-child { margin-bottom: 10px; }
   .storyline-label { font-weight: 700; font-size: 15px; }
-  .storyline-count { font-size: 12.5px; color: var(--muted); }
-  .storyline article { margin-bottom: 8px; }
+  .storyline-count { font-size: 12.5px; }
   .dupes { margin-top: 8px; font-size: 13px; color: var(--muted); }
   .dupes summary { cursor: pointer; }
   .dupes ul { list-style: none; margin: 6px 0 0; padding: 0 0 0 14px; border-left: 2px solid var(--border); }
@@ -103,10 +128,10 @@
     main { padding: 20px 12px 48px; }
     header h1 { font-size: 20px; }
     .fabs { right: 12px; bottom: 12px; }
-    .storyline { padding: 8px 6px 2px; }
+    .storyline > article { margin: 8px 6px 0; }
     article { flex-direction: column; padding: 12px; }
     .cover { width: 100%; height: 160px; }
-    .rated li { grid-template-columns: 66px 36px 28px minmax(0, 1fr); gap: 4px; }
+    .rated li { grid-template-columns: 80px 36px 28px minmax(0, 1fr); gap: 4px; }
     .dots { letter-spacing: 0; }
     .dupe-meta { display: block; min-width: 0; }
   }
@@ -116,41 +141,38 @@
 <main>
   <header>
     <h1>{{TITLE}}</h1>
-    <p><span id="count">{{COUNT}}</span> stories · generated {{GENERATED}}</p>
+    <p>{{COUNT_LINE}}</p>
     <div class="mix" id="mix"></div>
   </header>
   <div id="stories"></div>
   <footer>
-    <p><strong>How stories are rated.</strong> Each story gets 0–3 on six criteria, each with the fact behind it.
-    The sliders set how much each criterion counts compared with the others (they are remembered for every briefing).
-    The score is 0–100: one strong criterion is enough to lift a story, and each further one lifts it more, so a deadly attack
-    does not also need to be surprising to rank high. The +numbers show each criterion's share of the score.
-    Critical is 70+, High 50+, Notable 25+, Routine below.
-    Reports of the same event are merged under one story (open "more reports" to see them), different stories about one ongoing situation are grouped
-    into a storyline, and no single area takes more than about a third of the list.
-    {{RATED_BY}}</p>
-    <ul><li><strong>Severity</strong>: harm to lives, safety, rights or money</li><li><strong>Scale</strong>: how many people it reaches (local, national, international)</li><li><strong>Urgency</strong>: whether it is unfolding now or needs action soon</li><li><strong>Interest</strong>: how surprising, new or revealing it is</li><li><strong>Coverage</strong>: how many sources report the same event</li><li><strong>Relevance</strong>: whether it touches your tracked topics or region</li></ul>
+    <p>{{FOOTER}}</p>
+    <ul>{{LEGEND}}</ul>
   </footer>
 </main>
 <div class="eq-backdrop" id="eq-backdrop"></div>
-<aside class="eq" id="eq" aria-label="Importance of each criterion" aria-hidden="true">
+<aside class="eq" id="eq" aria-label="{{IMPORTANCE_ARIA}}" aria-hidden="true">
   <div class="eq-head">
-    <span class="eq-title">Importance</span>
-    <button type="button" class="eq-close" id="eq-close" aria-label="Close">✕</button>
+    <span class="eq-title">{{IMPORTANCE}}</span>
+    <button type="button" class="eq-close" id="eq-close" aria-label="{{CLOSE}}">✕</button>
   </div>
-  <p class="eq-hint">How much each criterion counts. The stories re-rank as you slide.</p>
+  <p class="eq-hint">{{IMPORTANCE_HINT}}</p>
   <div id="eq-presets"></div>
   <div id="eq-bands"></div>
 </aside>
 <div class="fabs">
-  <button type="button" class="fab fab-eq" id="eq-toggle" aria-controls="eq" aria-expanded="false">Importance · <span id="eq-current"></span></button>
-  <button type="button" class="fab" id="go-top" aria-label="Go to top">↑</button>
-  <button type="button" class="fab" id="go-bottom" aria-label="Go to bottom">↓</button>
+  <button type="button" class="fab fab-eq" id="eq-toggle" aria-controls="eq" aria-expanded="false">{{IMPORTANCE}} · <span id="eq-current"></span></button>
+  <button type="button" class="fab" id="go-top" aria-label="{{GO_TOP}}">↑</button>
+  <button type="button" class="fab" id="go-bottom" aria-label="{{GO_BOTTOM}}">↓</button>
 </div>
 <script id="briefing-data" type="application/json">{{DATA_JSON}}</script>
 <script>
 (() => {
   const data = JSON.parse(document.getElementById('briefing-data').textContent);
+  const T = data.text;
+  const fill = (text, values) => text.replace(/\{(\w+)\}/g, (_, key) => String(values[key]));
+  // Score breakdowns the reader opened stay open when the sliders redraw the list.
+  const openWhy = new Set();
   const KEYS = data.criteria.map(c => c.key);
   const STORE = 'ai-news-briefing-weights';
   const sameWeights = (a, b) => KEYS.every(k => a[k] === b[k]);
@@ -180,10 +202,10 @@
   // A unit is one story, or a storyline: several different stories about one ongoing
   // situation, shown together and ranked by their strongest story.
   function rank() {
-    const all = data.stories.map(story => {
+    const all = data.stories.map((story, index) => {
       const raw = scoreOf(story.scores);
       const score = data.aiRan && story.ratedBy === 'rules' ? Math.min(raw, data.uncheckedCap) : raw;
-      return { story, score, level: levelOf(score) };
+      return { story, index, score, level: levelOf(score) };
     }).sort((a, b) => b.score - a.score || b.story.publishedMs - a.story.publishedMs);
     const units = [], byLine = {};
     for (const entry of all) {
@@ -224,6 +246,7 @@
   function card(entry) {
     const { story, score, level } = entry;
     const article = el('article', 'level-' + level);
+    article.id = 's-' + entry.index;
     if (story.coverUrl) {
       const img = el('img', 'cover');
       img.src = story.coverUrl;
@@ -237,10 +260,8 @@
     const meta = el('p', 'meta');
     meta.append(el('span', 'badge', data.levelLabels[level] + ' · ' + score), ' ' + [story.source, story.time, story.dimensionLabel].filter(Boolean).join(' · '));
     if (story.ratedBy === 'rules') {
-      const tag = el('span', 'rules-tag', data.aiRan ? 'not checked by AI' : 'keyword-rated');
-      tag.title = data.aiRan
-        ? 'The AI did not answer for this story, so keyword rules rated it; it is kept below High until the AI checks it'
-        : 'AI is off, so keyword rules rated this story';
+      const tag = el('span', 'rules-tag', data.aiRan ? T.notChecked : T.keywordRated);
+      tag.title = data.aiRan ? T.notCheckedTip : T.keywordTip;
       meta.append(' · ', tag);
     }
     const h3 = el('h3');
@@ -259,12 +280,15 @@
       body.append(box);
     } else if (story.whyItMatters) {
       const row = el('p', 'impact');
-      row.append(el('span', 'angle', 'Why it matters'), ' ' + story.whyItMatters);
+      row.append(el('span', 'angle', T.whyItMatters), ' ' + story.whyItMatters);
       body.append(row);
     }
 
-    const rated = el('div', 'rated');
-    rated.append(el('p', 'rated-head', 'Rated ' + data.levelLabels[level].toLowerCase() + ' (' + score + '/100) because:'));
+    // The breakdown is folded away; the badge already says the level and score.
+    const rated = el('details', 'rated');
+    rated.open = openWhy.has(entry.index);
+    rated.addEventListener('toggle', () => { if (rated.open) openWhy.add(entry.index); else openWhy.delete(entry.index); });
+    rated.append(el('summary', 'rated-head', fill(T.why, { level: data.levelLabels[level], score })));
     const list = el('ul');
     // Each criterion's share of the score, in proportion to how hard it pushed.
     const storyLifts = lifts(story.scores);
@@ -288,8 +312,9 @@
       // Other reports of the same event, folded away under the main story.
       const dupes = el('details', 'dupes');
       const sources = Array.from(new Set(story.related.map(other => other.source).filter(Boolean)));
-      dupes.append(el('summary', '', story.related.length + ' more ' + (story.related.length === 1 ? 'report' : 'reports') + ' of this' + (sources.length ? ' · ' + sources.slice(0, 3).join(', ') + (sources.length > 3 ? '…' : '') : '')));
+      dupes.append(el('summary', '', fill(story.related.length === 1 ? T.moreOne : T.moreMany, { n: story.related.length }) + (sources.length ? ' · ' + sources.slice(0, 3).join(', ') + (sources.length > 3 ? '…' : '') : '')));
       const rows = el('ul');
+      if (story.duplicateWhy) rows.append(el('li', 'dupe-why', story.duplicateWhy));
       story.related.forEach(other => {
         const row = el('li');
         row.append(el('span', 'dupe-meta', [other.source, other.time].filter(Boolean).join(' · ')), link(other.link, other.title));
@@ -306,9 +331,83 @@
     if (unit.entries.length < 2) return card(unit.entries[0]);
     const box = el('div', 'storyline level-' + unit.level);
     const head = el('div', 'storyline-head');
-    head.append(el('span', 'storyline-label', unit.label), el('span', 'storyline-count', unit.entries.length + ' stories'));
+    head.append(
+      el('span', 'storyline-kicker', T.storyline),
+      el('span', 'storyline-label', unit.label),
+      el('span', 'storyline-count', fill(T.differentStories, { n: unit.entries.length }))
+    );
     box.append(head);
+    const why = unit.entries.map(entry => entry.story.storylineWhy).find(Boolean);
+    if (why) box.append(el('p', 'storyline-why', why));
     unit.entries.forEach(entry => box.append(card(entry)));
+    return box;
+  }
+
+  // The summary at the top. The AI writes it when it can, reading the stories together;
+  // otherwise it lists every Critical and High story (up to five), topped up to three with
+  // the next strongest, plus the most surprising one. Each line jumps to its card.
+  function jumpTo(index, text) {
+    const a = el('a', '', text);
+    a.href = '#s-' + index;
+    a.addEventListener('click', () => {
+      // A story pushed under "More stories" by the sliders is folded away; open it first.
+      const target = document.getElementById('s-' + index);
+      const fold = target && target.closest('details:not([open])');
+      if (fold) fold.open = true;
+    });
+    return a;
+  }
+  // No level words on the lines: the order already says what leads, and the AI tends to
+  // call everything critical. The dot takes the colour of the strongest story a line
+  // points to, at the current slider weights; only the closing curiosity is marked.
+  function glanceLines(picked) {
+    const entries = picked.flatMap(unit => unit.entries).sort((a, b) => b.score - a.score || b.story.publishedMs - a.story.publishedMs);
+    const levelAt = {};
+    entries.forEach(e => { levelAt[e.index] = e.level; });
+    const order = ['critical', 'high', 'notable', 'routine'];
+    const levelOfTargets = targets => order.find(level => targets.some(i => levelAt[i] === level)) || 'routine';
+    if (data.digest.length) {
+      return data.digest.map(bullet => ({
+        cls: 'level-' + levelOfTargets(bullet.targets),
+        tag: bullet.kind === 'interesting' ? T.alsoInteresting : '',
+        text: bullet.text,
+        targets: bullet.targets
+      }));
+    }
+    const lead = entries.filter(e => e.level === 'critical' || e.level === 'high').slice(0, 5);
+    for (const e of entries) {
+      if (lead.length >= 3) break;
+      if (!lead.includes(e)) lead.push(e);
+    }
+    const curious = entries
+      .filter(e => !lead.includes(e) && e.story.scores.interest >= 2)
+      .sort((a, b) => b.story.scores.interest - a.story.scores.interest || b.score - a.score)[0];
+    const line = (e, tag) => ({ tag, cls: 'level-' + e.level, text: e.story.summary || e.story.title, targets: [e.index] });
+    return lead.map(e => line(e, '')).concat(curious ? [line(curious, T.alsoInteresting)] : []);
+  }
+  function glance(picked) {
+    const lines = glanceLines(picked);
+    if (!lines.length) return null;
+    const box = el('section', 'glance');
+    const head = el('h2', '', T.atAGlance);
+    if (data.digest.length) head.append(el('span', 'glance-by', T.writtenByAi));
+    box.append(head);
+    const list = el('ul');
+    for (const line of lines) {
+      const li = el('li', line.cls);
+      if (line.tag) li.append(el('span', 'glance-tag', line.tag));
+      if (line.targets.length === 1) {
+        li.append(jumpTo(line.targets[0], line.text));
+      } else {
+        li.append(el('span', 'glance-text', line.text));
+        line.targets.forEach(index => {
+          const source = data.stories[index] && data.stories[index].source;
+          li.append(' ', jumpTo(index, '→ ' + (source || T.story)));
+        });
+      }
+      list.append(li);
+    }
+    box.append(list);
     return box;
   }
 
@@ -324,16 +423,18 @@
     const root = document.getElementById('stories');
     root.replaceChildren();
     if (!data.stories.length) {
-      root.append(el('p', 'empty', 'No new stories were published in this period.'));
+      root.append(el('p', 'empty', T.empty));
     } else {
+      const summary = glance(picked);
+      if (summary) root.append(summary);
       const priority = picked.filter(e => e.level === 'critical' || e.level === 'high');
       const others = picked.filter(e => e.level !== 'critical' && e.level !== 'high');
-      if (priority.length) root.append(section('Priority', priority));
-      if (others.length) root.append(section(priority.length ? 'Also worth knowing' : 'Stories', others));
+      if (priority.length) root.append(section(T.priority, priority));
+      if (others.length) root.append(section(priority.length ? T.alsoWorth : T.stories, others));
       if (rest.length) {
         const more = el('details', 'more');
         const restCount = rest.reduce((n, unit) => n + unit.entries.length, 0);
-        more.append(el('summary', '', 'More stories (' + restCount + ')'));
+        more.append(el('summary', '', fill(T.moreStories, { n: restCount })));
         rest.forEach(unit => more.append(unitNode(unit)));
         root.append(more);
       }
@@ -343,7 +444,7 @@
     shown.forEach(e => { counts[e.story.dimensionLabel] = (counts[e.story.dimensionLabel] || 0) + 1; });
     const mix = document.getElementById('mix');
     mix.replaceChildren(...Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([label, n]) => el('span', 'chip', label + ' ' + n)));
-    document.getElementById('count').textContent = shown.length + ' of ' + data.storyCount;
+    document.getElementById('count').textContent = fill(T.of, { a: shown.length, b: data.storyCount });
     for (const k of KEYS) {
       document.getElementById('w-' + k).value = String(weights[k]);
       document.getElementById('v-' + k).textContent = String(weights[k]);
@@ -352,7 +453,7 @@
       button.classList.toggle('on', sameWeights(weights, data.presets[Number(button.dataset.i)].weights));
     });
     const preset = data.presets.find(p => sameWeights(weights, p.weights));
-    document.getElementById('eq-current').textContent = preset ? preset.name : 'Custom';
+    document.getElementById('eq-current').textContent = preset ? preset.name : T.custom;
   }
 
   // The criteria side panel and the floating buttons work from anywhere on the page.
@@ -388,7 +489,7 @@
     input.max = '5';
     input.step = '0.5';
     input.id = 'w-' + c.key;
-    input.setAttribute('aria-label', c.label + ' importance');
+    input.setAttribute('aria-label', fill(T.bandAria, { label: c.label }));
     input.addEventListener('input', () => {
       weights = Object.assign({}, weights, { [c.key]: Number(input.value) });
       save();

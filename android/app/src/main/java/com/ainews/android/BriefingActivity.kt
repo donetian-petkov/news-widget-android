@@ -78,11 +78,11 @@ class BriefingActivity : ComponentActivity() {
         var failed by remember { mutableStateOf<String?>(null) }
         val scope = rememberCoroutineScope()
 
-        fun write(period: BriefingPeriod) {
+        fun write(period: BriefingPeriod, feeds: Set<String> = feedSourceIds) {
             working = true
             failed = null
             scope.launch {
-                val record = NewsRepository.writeBriefing(period, feedSourceIds)
+                val record = NewsRepository.writeBriefing(period, feeds)
                 briefingId = record?.id
                 html = record?.id?.let(NewsRepository::briefingHtml)
                 if (html == null) failed = NewsRepository.state.value.message ?: "The briefing could not be written."
@@ -116,7 +116,7 @@ class BriefingActivity : ComponentActivity() {
             ) {
                 CircularProgressIndicator()
                 Text(
-                    text = "Rating and grouping the stories…",
+                    text = "Rating, grouping and summarising the stories…",
                     modifier = Modifier.padding(top = 16.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -138,16 +138,9 @@ class BriefingActivity : ComponentActivity() {
                 Button(onClick = { write(BriefingPeriod.Day) }, modifier = Modifier.fillMaxWidth()) {
                     Text("Daily briefing")
                 }
-                NewsRepository.latestBriefing()?.let { latest ->
-                    OutlinedButton(
-                        onClick = {
-                            briefingId = latest.id
-                            html = NewsRepository.briefingHtml(latest.id)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Latest saved briefing")
-                    }
+                // Written now for every feed, never an old saved one.
+                OutlinedButton(onClick = { write(BriefingPeriod.Hour, emptySet()) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Hourly briefing · All feeds")
                 }
                 failed?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)

@@ -79,10 +79,15 @@ Implemented so far:
 - Hourly and daily briefings, the same as the Mac widget's: the stories of the
   last hour or day rated 0-3 on severity, scale, urgency, interest, coverage and
   relevance, each with the fact behind it, plus their economic, political,
-  social and security impact. Duplicate reports fold under one story, related
-  events group into storylines, and sliders on the page set what counts most.
-  One is written a minute past every hour; the widget's briefing button writes
-  one for that widget's feeds, and the drawer lists them all.
+  social and security impact. The AI merges reports of one event and groups
+  stories about one situation into a framed storyline, each with its reason,
+  and writes an "At a glance" summary at the top; score breakdowns fold away
+  and sliders set what counts most. Page and labels follow the language of the
+  headlines (Bulgarian or English). Briefings are written only when asked for,
+  with AI whenever a key is set even if the AI toggle is off; the widget's
+  briefing button writes one for that widget's feeds, and the drawer lists
+  them all. `scripts/sync-briefing-page.mts` regenerates the page from the Mac
+  widget's renderer.
 - AI usage totals by action, pending-story count, and a reset.
 
 ## Build

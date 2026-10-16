@@ -3338,8 +3338,8 @@ private fun BriefingsScreen(
             SettingsSection("Write a briefing") {
                 Text(
                     text = "The stories of the last hour or day, rated by how much they matter, with the reason for " +
-                        "each score and their economic, political, social and security impact. One is also written " +
-                        "a minute past every hour. A widget's briefing button covers just that widget's feeds.",
+                        "each score and their economic, political, social and security impact. Briefings are written " +
+                        "only when you ask, with AI whenever a key is set. A widget's briefing button covers just that widget's feeds.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

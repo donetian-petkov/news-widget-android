@@ -1,5 +1,6 @@
 package com.ainews.android.network
 
+import com.ainews.android.data.BriefingEngine
 import com.ainews.android.data.NewsStory
 import com.ainews.android.data.StoryAiAction
 import org.json.JSONObject
@@ -64,7 +65,8 @@ class AiEnrichmentClient {
     /** Runs one AI action for one story and returns just that block of text. */
     fun runActionWithOpenAi(apiKey: String, story: NewsStory, action: StoryAiAction): String {
         val instruction = when (action) {
-            StoryAiAction.Summary -> "Write a short factual summary in at most three sentences."
+            // Headline metaphors ("the Black Sea hit the harvest") must not come back as facts.
+            StoryAiAction.Summary -> "Write a short factual summary in at most three sentences. ${BriefingEngine.LITERAL_FACTS_RULE}"
             StoryAiAction.Research ->
                 "Write short research notes: the context a reader needs and what to watch next. Use at most four sentences."
             StoryAiAction.Translation ->

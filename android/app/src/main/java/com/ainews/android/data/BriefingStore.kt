@@ -19,8 +19,6 @@ class BriefingStore(private val dir: File, private val keep: Int = 96) {
 
     fun latest(): BriefingRecord? = records.firstOrNull()
 
-    fun hasScheduledWindow(startMs: Long): Boolean = records.any { it.scheduled && it.windowStartMs == startMs }
-
     fun readHtml(id: String): String? {
         if (!BriefingEngine.isValidId(id) || records.none { it.id == id }) return null
         return runCatching { File(dir, "$id.html").readText() }.getOrNull()
