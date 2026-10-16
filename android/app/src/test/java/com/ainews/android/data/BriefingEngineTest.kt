@@ -444,7 +444,7 @@ class BriefingEngineTest {
     }
 
     @Test
-    fun cleansSummariesOnThePageAndAsksOnlyForRealImpacts() = runBlocking {
+    fun cleansSummariesOnThePageAndNoLongerAsksForImpacts() = runBlocking {
         val briefing = BriefingEngine.build(
             stories = listOf(story(title = "Airports close in Rome", summary = "Airports closed.\nFlights were")),
             options = BriefingOptions(BriefingPeriod.Hour, "All", hour),
@@ -452,8 +452,7 @@ class BriefingEngineTest {
         )
         assertEquals("Airports closed.", BriefingPageReader.parse(briefing.html)!!.stories.single().summary)
         val prompt = BriefingEngine.buildAiRatingPrompt(emptyList(), false, "")
-        assertTrue(prompt.contains("Never write that there is no effect"))
-        assertFalse(prompt.contains("Always fill it"))
+        assertFalse(prompt.contains("impacts"))
     }
 
     @Test

@@ -496,7 +496,6 @@ private fun StoryCard(page: BriefingPage, entry: RankedStory, weights: Map<Crite
     // The breakdown is folded away; the badge already says the level and score.
     var showWhy by rememberSaveable("why-${story.index}") { mutableStateOf(false) }
     // The impact notes fold away too; the heading names the angles inside.
-    var showImpact by rememberSaveable("impact-${story.index}") { mutableStateOf(false) }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(1.dp)) {
         Row(modifier = Modifier.height(IntrinsicSize.Min)) {
             Spacer(Modifier.width(4.dp).fillMaxHeight().background(accent))
@@ -521,31 +520,6 @@ private fun StoryCard(page: BriefingPage, entry: RankedStory, weights: Map<Crite
                 )
                 if (story.summary.isNotBlank()) Text(story.summary, style = MaterialTheme.typography.bodyMedium)
 
-                if (story.impacts.isNotEmpty()) {
-                    val angles = ImpactAngle.entries.filter { it in story.impacts }
-                    Text(
-                        "${if (showImpact) "▾" else "▸"} " + page.say("impact") + " · " +
-                            angles.joinToString(", ") { text.angles.getValue(it).lowercase(java.util.Locale.ROOT) },
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clickable { showImpact = !showImpact }.padding(vertical = 2.dp),
-                    )
-                    if (showImpact) angles.forEach { angle ->
-                        Row {
-                            Text(
-                                text.angles.getValue(angle).uppercase(),
-                                color = angleColor(angle, dark),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.width(84.dp).padding(top = 2.dp),
-                            )
-                            Text(story.impacts.getValue(angle), style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                } else if (story.whyItMatters.isNotBlank()) {
-                    Text("${page.say("whyItMatters")}: ${story.whyItMatters}", style = MaterialTheme.typography.bodySmall)
-                }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 Text(

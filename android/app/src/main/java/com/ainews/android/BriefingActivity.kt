@@ -134,8 +134,8 @@ class BriefingActivity : ComponentActivity() {
             ) {
                 Text("Briefing for $scopeLabel", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    text = "Stories rated by how much they matter, with the reason for each score, " +
-                        "their economic, political, social and security impact, and sliders to set what counts most.",
+                    text = "Stories rated by how much they matter, with the reason for each score " +
+                        "and sliders to set what counts most.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

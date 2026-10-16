@@ -108,7 +108,7 @@ class BriefingText(
     Critical is $critical+, High $high+, Notable $notable+, Routine below.
     ${if (ai) "The AI reads the stories together to merge reports of the same event under one story (open \"more reports\" to see them and why), to group different stories about one ongoing situation into a storyline, and to write the summary at the top." else "Reports with near-identical headlines are merged under one story (open \"more reports\" to see them)."}
     No single area takes more than about a third of the list.
-    ${if (ai) "Severity, scale, urgency, interest and the economic, political, social and security impact are judged by AI; coverage and relevance come from your sources and topics." else "AI was off, so keyword rules did the rating and there is no impact write-up."}"""
+    ${if (ai) "Severity, scale, urgency and interest are judged by AI; coverage and relevance come from your sources and topics." else "AI was off, so keyword rules did the rating."}"""
             },
             importance = "Importance",
             importanceAria = "Importance of each criterion",
@@ -232,7 +232,7 @@ class BriefingText(
     Критично е $critical+, Важно $high+, Забележимо $notable+, Рутинно под това.
     ${if (ai) "AI чете новините заедно: обединява съобщенията за едно и също събитие под една новина (отворете „още източника“, за да ги видите и защо), групира различни новини за една ситуация в сюжет и пише обобщението най-горе." else "Съобщения с почти еднакви заглавия се обединяват под една новина (отворете „още източника“, за да ги видите)."}
     Никоя област не заема повече от около една трета от списъка.
-    ${if (ai) "Тежестта, обхватът, спешността, интересът и икономическото, политическото, социалното и свързаното със сигурността въздействие се оценяват от AI; отразяването и значимостта идват от вашите източници и теми." else "AI беше изключен, затова оценката е по ключови думи и няма описание на въздействието."}"""
+    ${if (ai) "Тежестта, обхватът, спешността и интересът се оценяват от AI; отразяването и значимостта идват от вашите източници и теми." else "AI беше изключен, затова оценката е по ключови думи."}"""
             },
             importance = "Важност",
             importanceAria = "Важност на всеки критерий",
