@@ -35,12 +35,28 @@ class ModelCatalogTest {
     }
 
     @Test
-    fun picksTheNewestCheapModelForSummariesAndTheNewestMidPricedOneForResearch() {
+    fun balancedPicksTheNewestCheapModelForSummariesAndTheNewestMidPricedOneForResearch() {
         val models = listOf(model("flagship", 30, 50.0), model("mid-new", 29, 10.0), model("cheap-new", 28, 0.5), model("cheap-old", 1, 0.4), model("mid-old", 2, 8.0))
-        assertEquals("cheap-new", ModelCatalog.pickDefault(ModelKind.Summary, models))
-        assertEquals("cheap-new", ModelCatalog.pickDefault(ModelKind.Ask, models))
-        assertEquals("mid-new", ModelCatalog.pickDefault(ModelKind.Research, models))
-        assertEquals("b", ModelCatalog.pickDefault(ModelKind.Summary, listOf(model("a", 1), model("b", 2))))
+        val balanced = ModelPolicy.Balanced
+        assertEquals("cheap-new", ModelCatalog.pickDefault(ModelKind.Summary, models, balanced))
+        assertEquals("cheap-new", ModelCatalog.pickDefault(ModelKind.Ask, models, balanced))
+        assertEquals("mid-new", ModelCatalog.pickDefault(ModelKind.Research, models, balanced))
+        assertEquals("b", ModelCatalog.pickDefault(ModelKind.Summary, listOf(model("a", 1), model("b", 2)), balanced))
+    }
+
+    @Test
+    fun byDefaultGivesEveryTaskTheCheapestModelOfTheNewestGeneration() {
+        val models = listOf(
+            model("gpt-6.1-sol", 30, 10.0), model("gpt-6-astra", 28, 50.0), model("gpt-6-luna", 27, 0.5),
+            model("gpt-5-nano", 1, 0.4), model("gpt-5.6-terra", 20, 12.0),
+        )
+        assertEquals(ModelPolicy.Cheapest, ModelPolicy.DEFAULT)
+        ModelKind.entries.forEach { kind -> assertEquals("gpt-6-luna", ModelCatalog.pickDefault(kind, models)) }
+        assertEquals("gpt-6.1-sol", ModelCatalog.pickDefault(ModelKind.Research, models, ModelPolicy.Balanced))
+        // A newer generation takes over once it is listed.
+        assertEquals("gpt-7-mini", ModelCatalog.pickDefault(ModelKind.Summary, models + model("gpt-7-mini", 40, 3.0)))
+        assertEquals(6, ModelCatalog.generationOf("openai/gpt-6.1-sol"))
+        assertEquals(5, ModelCatalog.generationOf("claude-haiku-5-5"))
     }
 
     @Test
@@ -52,7 +68,7 @@ class ModelCatalogTest {
             ModelCatalog.resolveChoice(ModelKind.Summary, ModelChoice("gone", true), models),
         )
         // An automatic choice moves to the newest default.
-        assertEquals(ResolvedChoice(ModelChoice("mid", false)), ModelCatalog.resolveChoice(ModelKind.Research, ModelChoice("old", false), models))
+        assertEquals(ResolvedChoice(ModelChoice("mid", false)), ModelCatalog.resolveChoice(ModelKind.Research, ModelChoice("old", false), models, ModelPolicy.Balanced))
     }
 
     @Test
@@ -94,13 +110,15 @@ class ModelCatalogTest {
         assertTrue(store.load().models.isEmpty())
         val models = listOf(CatalogModel("gpt-a", 2), CatalogModel("gpt-b", 1))
         val prices = mapOf("openai/gpt-a" to ModelPrice(0.1, 0.5), "openai/unrelated" to ModelPrice(1.0, 2.0))
-        store.save(ModelCatalogStore.Saved(CatalogProvider.OpenAI, models, prices, mapOf(ModelKind.Research to ModelChoice("gpt-b", true)), 42))
+        assertEquals(ModelPolicy.Cheapest, store.load().policy)
+        store.save(ModelCatalogStore.Saved(CatalogProvider.OpenAI, models, prices, mapOf(ModelKind.Research to ModelChoice("gpt-b", true)), 42, ModelPolicy.Balanced))
         val loaded = ModelCatalogStore(file).load()
         assertEquals(CatalogProvider.OpenAI, loaded.provider)
         assertEquals(models, loaded.models)
         assertEquals(setOf("openai/gpt-a"), loaded.prices.keys)
         assertEquals(ModelChoice("gpt-b", true), loaded.choices[ModelKind.Research])
         assertEquals(42, loaded.fetchedAtMs)
+        assertEquals(ModelPolicy.Balanced, loaded.policy)
         assertFalse(file.readText().contains("unrelated"))
     }
 }

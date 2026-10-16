@@ -1925,6 +1925,7 @@ private fun SettingsScreen(
                 ModelSettings(
                     models = models,
                     keySaved = settings.providerKeySaved,
+                    onPolicy = NewsRepository::setModelPolicy,
                     onChoose = NewsRepository::chooseModel,
                     onRefresh = { NewsRepository.refreshModels(force = true) },
                 )

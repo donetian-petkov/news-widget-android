@@ -139,6 +139,7 @@ object NewsRepository {
                     models = savedCatalog.provider?.let { provider -> ModelCatalog.withPrices(provider, savedCatalog.models, savedCatalog.prices) }.orEmpty(),
                     choices = savedCatalog.choices,
                     fetchedAtMs = savedCatalog.fetchedAtMs,
+                    policy = savedCatalog.policy,
                 ),
             )
         }
@@ -432,17 +433,17 @@ object NewsRepository {
             val models = ModelCatalog.withPrices(provider, catalog, prices)
             val notices = mutableListOf<String>()
             val choices = ModelKind.entries.associateWith { kind ->
-                val resolved = ModelCatalog.resolveChoice(kind, current.choices[kind], models)
+                val resolved = ModelCatalog.resolveChoice(kind, current.choices[kind], models, current.policy)
                 resolved.replaced?.let { gone ->
                     notices.add("$gone is no longer offered by ${provider.name}; ${kind.label.lowercase()} now use ${resolved.choice.model}")
                 }
                 resolved.choice
             }
             val now = System.currentTimeMillis()
-            modelCatalogStore.save(ModelCatalogStore.Saved(provider, catalog, prices, choices, now))
+            modelCatalogStore.save(ModelCatalogStore.Saved(provider, catalog, prices, choices, now, current.policy))
             _state.update {
                 it.copy(
-                    models = ModelCatalogState(provider, models, choices, now, refreshing = false, error = null),
+                    models = ModelCatalogState(provider, models, choices, now, refreshing = false, error = null, policy = current.policy),
                     message = notices.joinToString(" · ").ifBlank { it.message },
                 )
             }
@@ -454,19 +455,32 @@ object NewsRepository {
         val current = _state.value.models
         val provider = current.provider ?: return
         val choice = if (modelId == null) {
-            ModelCatalog.resolveChoice(kind, null, current.models).choice
+            ModelCatalog.resolveChoice(kind, null, current.models, current.policy).choice
         } else {
             ModelChoice(modelId, byUser = true)
         }
         val choices = current.choices + (kind to choice)
         val saved = modelCatalogStore.load()
-        modelCatalogStore.save(ModelCatalogStore.Saved(provider, saved.models, saved.prices, choices, saved.fetchedAtMs))
+        modelCatalogStore.save(ModelCatalogStore.Saved(provider, saved.models, saved.prices, choices, saved.fetchedAtMs, current.policy))
         _state.update {
             it.copy(
                 models = it.models.copy(choices = choices),
                 message = "${kind.label}: ${choice.model}${if (modelId == null) " (automatic)" else ""}",
             )
         }
+    }
+
+    /**
+     * Cheapest or balanced. Changing it clears the per-task picks, so every task follows the
+     * new policy at once, as the settings text says.
+     */
+    fun setModelPolicy(policy: ModelPolicy) {
+        val current = _state.value.models
+        val choices = ModelKind.entries.associateWith { kind -> ModelCatalog.resolveChoice(kind, null, current.models, policy).choice }
+            .filterValues { it.model.isNotBlank() }
+        val saved = modelCatalogStore.load()
+        modelCatalogStore.save(ModelCatalogStore.Saved(saved.provider ?: current.provider, saved.models, saved.prices, choices, saved.fetchedAtMs, policy))
+        _state.update { it.copy(models = it.models.copy(choices = choices, policy = policy), message = "Model choice: ${policy.label}") }
     }
 
     /**

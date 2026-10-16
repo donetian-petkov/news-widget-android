@@ -32,9 +32,27 @@ enum class CatalogProvider(val key: String) {
 
 /** What a model is used for: each gets its own choice. */
 enum class ModelKind(val key: String, val label: String, val detail: String) {
-    Summary("summary", "Story summaries", "Runs on every story, so the default is the newest cheap model"),
-    Ask("ask", "Quick tasks", "Translations and neutral titles; the default is the newest cheap model"),
-    Research("research", "Research and briefings", "The default is the newest mid-priced model; pick a cheaper one here to save"),
+    Summary("summary", "Story summaries", "Runs on every story"),
+    Ask("ask", "Quick tasks", "Translations and neutral titles"),
+    Research("research", "Research and briefings", "Research notes and the hourly or daily briefings"),
+}
+
+/**
+ * How models are picked when the reader has not picked one for a task.
+ * Cheapest: every task uses the cheapest model of the provider's newest generation.
+ * Balanced: summaries and quick tasks use the newest cheap model, research and briefings
+ * the newest mid-priced one.
+ */
+enum class ModelPolicy(val key: String, val label: String) {
+    Cheapest("cheapest", "Cheapest"),
+    Balanced("balanced", "Balanced"),
+    ;
+
+    companion object {
+        val DEFAULT = Cheapest
+
+        fun fromKey(key: String?): ModelPolicy = entries.firstOrNull { it.key == key } ?: DEFAULT
+    }
 }
 
 data class CatalogModel(val id: String, val createdMs: Long)
@@ -127,17 +145,30 @@ object ModelCatalog {
 
     private val newestFirst = compareByDescending<ModelInfo> { it.createdMs }.thenBy { it.id.length }.thenBy { it.id }
 
+    private val FIRST_NUMBER = Regex("(\\d+)")
+
+    /** The model generation in an id: "gpt-6.1-sol" and "gpt-6-luna" give 6, "claude-haiku-5-5" 5. */
+    fun generationOf(id: String): Int? =
+        FIRST_NUMBER.find(id.substringAfterLast('/'))?.groupValues?.get(1)?.toIntOrNull()
+
     /**
-     * Summaries and quick tasks run on every story, so they get the newest cheap model
-     * (at most $1 per million output tokens). Research and briefings get the newest
-     * mid-priced one (up to $15), not the most expensive flagship. Without prices: the
-     * newest model.
+     * Picks by price and age, never by name, so new models show up and retired ones drop out.
+     * Cheapest: the cheapest model of the newest generation, for every task.
+     * Balanced: summaries and quick tasks get the newest model up to $1 per million output
+     * tokens; research and briefings the newest one up to $15, not the flagship.
+     * Without prices: the newest model.
      */
-    fun pickDefault(kind: ModelKind, models: List<ModelInfo>): String? {
+    fun pickDefault(kind: ModelKind, models: List<ModelInfo>, policy: ModelPolicy = ModelPolicy.DEFAULT): String? {
         val sorted = models.sortedWith(newestFirst)
         val priced = sorted.filter { it.outputPerM != null }
         if (priced.isEmpty()) return sorted.firstOrNull()?.id
         fun out(model: ModelInfo) = model.outputPerM!!
+        if (policy == ModelPolicy.Cheapest) {
+            val newest = priced.mapNotNull { generationOf(it.id) }.maxOrNull()
+            val family = if (newest == null) priced else priced.filter { generationOf(it.id) == newest }
+            fun cost(model: ModelInfo) = out(model) + (model.inputPerM ?: 0.0)
+            return family.sortedWith(compareBy<ModelInfo> { cost(it) }.then(newestFirst)).firstOrNull()?.id
+        }
         val pick = if (kind == ModelKind.Research) {
             priced.firstOrNull { out(it) > 1 && out(it) <= 15 }
         } else {
@@ -156,10 +187,10 @@ object ModelCatalog {
      * the choice was automatic, the default for that kind takes over; [ResolvedChoice.replaced]
      * says what was dropped so the user can be told.
      */
-    fun resolveChoice(kind: ModelKind, current: ModelChoice?, models: List<ModelInfo>): ResolvedChoice {
+    fun resolveChoice(kind: ModelKind, current: ModelChoice?, models: List<ModelInfo>, policy: ModelPolicy = ModelPolicy.DEFAULT): ResolvedChoice {
         val offered = models.map { it.id }.toSet()
         if (current != null && current.model.isNotEmpty() && current.byUser && current.model in offered) return ResolvedChoice(current)
-        val fallback = pickDefault(kind, models) ?: current?.model.orEmpty()
+        val fallback = pickDefault(kind, models, policy) ?: current?.model.orEmpty()
         if (current != null && current.byUser && current.model.isNotEmpty() && current.model !in offered) {
             return ResolvedChoice(ModelChoice(fallback, byUser = false), replaced = current.model)
         }
@@ -234,7 +265,11 @@ data class ModelCatalogState(
     val fetchedAtMs: Long = 0,
     val refreshing: Boolean = false,
     val error: String? = null,
+    val policy: ModelPolicy = ModelPolicy.DEFAULT,
 ) {
+    /** What [policy] would pick for [kind] from the current list, for the settings text. */
+    fun preview(policy: ModelPolicy, kind: ModelKind): String? = ModelCatalog.pickDefault(kind, models, policy)
+
     fun modelFor(kind: ModelKind): String? = choices[kind]?.model?.takeIf { it.isNotBlank() }
 
     fun info(id: String?): ModelInfo? = models.firstOrNull { it.id == id }
@@ -251,6 +286,7 @@ class ModelCatalogStore(private val file: File) {
         val prices: Map<String, ModelPrice>,
         val choices: Map<ModelKind, ModelChoice>,
         val fetchedAtMs: Long,
+        val policy: ModelPolicy = ModelPolicy.DEFAULT,
     )
 
     fun load(): Saved = runCatching {
@@ -270,6 +306,7 @@ class ModelCatalogStore(private val file: File) {
                 choices.optJSONObject(kind.key)?.let { kind to ModelChoice(it.optString("model"), it.optBoolean("byUser")) }
             }.toMap(),
             fetchedAtMs = json.optLong("fetchedAtMs"),
+            policy = ModelPolicy.fromKey(json.optString("policy")),
         )
     }.getOrDefault(Saved(null, emptyList(), emptyMap(), emptyMap(), 0))
 
@@ -278,6 +315,7 @@ class ModelCatalogStore(private val file: File) {
         val json = JSONObject()
             .put("provider", saved.provider?.key.orEmpty())
             .put("fetchedAtMs", saved.fetchedAtMs)
+            .put("policy", saved.policy.key)
             .put("models", JSONArray().also { array -> saved.models.forEach { array.put(JSONObject().put("id", it.id).put("createdMs", it.createdMs)) } })
             // Only the prices of listed models: OpenRouter's whole catalogue is large.
             .put(
