@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import com.ainews.android.data.FeedSource
 import com.ainews.android.data.NewsStory
+import com.ainews.android.data.SummaryText
 import com.ainews.android.data.defaultFeedSources
 import java.net.HttpURLConnection
 import java.net.URL
@@ -182,7 +183,7 @@ class RssFeedFetcher {
             val cleanLink = link.trim()
             if (cleanTitle.isBlank() || cleanLink.isBlank()) return null
 
-            val cleanSummary = summary.cleanHtml().trim().ifBlank { cleanTitle }
+            val cleanSummary = SummaryText.cleanSummary(summary.cleanHtml()).ifBlank { cleanTitle }
             val cleanImageUrl = imageUrl.ifBlank { summary.extractFirstImageUrl() }
             val publishedMillis = parsePublishedAt(publishedAt)
             val id = stableId(cleanLink.ifBlank { "$source:$cleanTitle" })

@@ -422,6 +422,37 @@ class BriefingEngineTest {
     }
 
     @Test
+    fun keepsCriticalForWideNewsThatIsSevereOrUrgent() {
+        val wideAndSevere = scores(Criterion.Severity to 3, Criterion.Scale to 3, Criterion.Urgency to 3)
+        assertEquals(null, BriefingEngine.criticalCap(wideAndSevere))
+        assertEquals(PriorityLevel.Critical, BriefingEngine.levelOf(BriefingEngine.scoreOf(wideAndSevere)))
+        // A grim local crime: as strong as it gets everywhere but reach.
+        val local = scores(Criterion.Severity to 3, Criterion.Scale to 1, Criterion.Urgency to 3, Criterion.Interest to 3)
+        assertEquals(BriefingEngine.CriticalCap.Local, BriefingEngine.criticalCap(local))
+        assertTrue(BriefingEngine.rawScoreOf(local) >= BriefingEngine.CRITICAL_AT)
+        assertEquals(BriefingEngine.CRITICAL_AT - 1, BriefingEngine.scoreOf(local))
+        // A background feature: wide, but neither severe nor urgent.
+        val feature = scores(Criterion.Severity to 2, Criterion.Scale to 3, Criterion.Urgency to 1, Criterion.Interest to 3, Criterion.Coverage to 3)
+        assertEquals(BriefingEngine.CriticalCap.NotNow, BriefingEngine.criticalCap(feature))
+        assertEquals(PriorityLevel.High, BriefingEngine.levelOf(BriefingEngine.scoreOf(feature)))
+        assertEquals("Под „Критично“: засяга само едно място.", BriefingText.Bulgarian.page[BriefingEngine.CriticalCap.Local.textKey])
+        assertEquals("Impact", BriefingText.English.page["impact"])
+    }
+
+    @Test
+    fun cleansSummariesOnThePageAndAsksOnlyForRealImpacts() = runBlocking {
+        val briefing = BriefingEngine.build(
+            stories = listOf(story(title = "Airports close in Rome", summary = "Airports closed.\nFlights were")),
+            options = BriefingOptions(BriefingPeriod.Hour, "All", hour),
+            template = template,
+        )
+        assertEquals("Airports closed.", BriefingPageReader.parse(briefing.html)!!.stories.single().summary)
+        val prompt = BriefingEngine.buildAiRatingPrompt(emptyList(), false, "")
+        assertTrue(prompt.contains("Never write that there is no effect"))
+        assertFalse(prompt.contains("Always fill it"))
+    }
+
+    @Test
     fun everyBriefingPromptCarriesTheLiteralFactsRule() {
         val rule = BriefingEngine.LITERAL_FACTS_RULE
         assertTrue(BriefingEngine.buildAiRatingPrompt(emptyList(), true, "България").contains(rule))

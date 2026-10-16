@@ -1275,7 +1275,8 @@ object NewsRepository {
 
         withContext(Dispatchers.IO) {
             when (action) {
-                StoryAiAction.Summary -> storyDao.updateSummary(storyId, result)
+                // A summary saying there is nothing to add keeps the one the story has.
+                StoryAiAction.Summary -> storyDao.updateSummary(storyId, SummaryText.cleanSummary(result).ifBlank { story.summary })
                 StoryAiAction.Research -> storyDao.updateResearch(storyId, result)
                 StoryAiAction.Translation -> storyDao.updateTranslation(storyId, result)
                 StoryAiAction.NeutralTitle -> storyDao.updateNeutralTitle(storyId, result)

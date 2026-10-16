@@ -49,7 +49,9 @@ class AiEnrichmentClient {
     fun runActionWithOpenAi(apiKey: String, model: String, story: NewsStory, action: StoryAiAction): String {
         val instruction = when (action) {
             // Headline metaphors ("the Black Sea hit the harvest") must not come back as facts.
-            StoryAiAction.Summary -> "Write a short factual summary in at most three sentences. ${BriefingEngine.LITERAL_FACTS_RULE}"
+            // One short sentence, as on the Mac; anything longer is cut by SummaryText.
+            StoryAiAction.Summary -> "Write ONE short factual sentence (at most 22 words) with one concrete detail that is not " +
+                "already in the headline. If there is no extra factual detail, answer exactly NO_SUMMARY. ${BriefingEngine.LITERAL_FACTS_RULE}"
             StoryAiAction.Research ->
                 "Write short research notes: the context a reader needs and what to watch next. Use at most four sentences."
             StoryAiAction.Translation ->

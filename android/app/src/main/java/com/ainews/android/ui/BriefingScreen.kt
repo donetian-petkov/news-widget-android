@@ -69,6 +69,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ainews.android.R
+import com.ainews.android.data.BriefingEngine
 import com.ainews.android.data.BriefingPage
 import com.ainews.android.data.BriefingPageReader
 import com.ainews.android.data.BriefingUnit
@@ -389,6 +390,8 @@ private fun StoryCard(page: BriefingPage, entry: RankedStory, weights: Map<Crite
     var showDupes by rememberSaveable(story.index) { mutableStateOf(false) }
     // The breakdown is folded away; the badge already says the level and score.
     var showWhy by rememberSaveable("why-${story.index}") { mutableStateOf(false) }
+    // The impact notes fold away too; the heading names the angles inside.
+    var showImpact by rememberSaveable("impact-${story.index}") { mutableStateOf(false) }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(1.dp)) {
         Row(modifier = Modifier.height(IntrinsicSize.Min)) {
             Spacer(Modifier.width(4.dp).fillMaxHeight().background(accent))
@@ -414,7 +417,16 @@ private fun StoryCard(page: BriefingPage, entry: RankedStory, weights: Map<Crite
                 if (story.summary.isNotBlank()) Text(story.summary, style = MaterialTheme.typography.bodyMedium)
 
                 if (story.impacts.isNotEmpty()) {
-                    ImpactAngle.entries.filter { it in story.impacts }.forEach { angle ->
+                    val angles = ImpactAngle.entries.filter { it in story.impacts }
+                    Text(
+                        "${if (showImpact) "▾" else "▸"} " + page.say("impact") + " · " +
+                            angles.joinToString(", ") { text.angles.getValue(it).lowercase(java.util.Locale.ROOT) },
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable { showImpact = !showImpact }.padding(vertical = 2.dp),
+                    )
+                    if (showImpact) angles.forEach { angle ->
                         Row {
                             Text(
                                 text.angles.getValue(angle).uppercase(),
@@ -439,6 +451,12 @@ private fun StoryCard(page: BriefingPage, entry: RankedStory, weights: Map<Crite
                     modifier = Modifier.clickable { showWhy = !showWhy }.padding(vertical = 2.dp),
                 )
                 if (showWhy) {
+                    // Said when the cap, not the score, kept the story below Critical.
+                    BriefingEngine.criticalCap(story.scores)
+                        ?.takeIf { BriefingEngine.rawScoreOf(story.scores, weights) >= BriefingEngine.CRITICAL_AT }
+                        ?.let { cap ->
+                            Text(page.say(cap.textKey), style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     val shares = BriefingPageReader.shares(story.scores, weights, entry.score)
                     Criterion.entries.forEach { criterion ->
                         val value = story.scores[criterion] ?: 0

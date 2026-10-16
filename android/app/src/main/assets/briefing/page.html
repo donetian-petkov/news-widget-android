@@ -70,6 +70,8 @@
   .level-high .badge { color: var(--high); }
   .level-notable .badge { color: var(--notable); }
   .impacts { margin-top: 8px; }
+  .impacts-head { font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; width: fit-content; }
+  .rated-cap { margin: 4px 0 6px; font-style: italic; }
   .impact { margin-top: 4px; }
   .angle { display: inline-block; min-width: 72px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
   .angle-economic { color: var(--economic); }
@@ -173,6 +175,7 @@
   const fill = (text, values) => text.replace(/\{(\w+)\}/g, (_, key) => String(values[key]));
   // Score breakdowns the reader opened stay open when the sliders redraw the list.
   const openWhy = new Set();
+  const openImpact = new Set();
   const KEYS = data.criteria.map(c => c.key);
   const STORE = 'ai-news-briefing-weights';
   const sameWeights = (a, b) => KEYS.every(k => a[k] === b[k]);
@@ -192,8 +195,18 @@
     const heaviest = Math.max(0, ...KEYS.map(k => weights[k]));
     return KEYS.map(k => heaviest ? Math.max(0, weights[k]) / heaviest * scores[k] / 3 * data.strength : 0);
   }
-  function scoreOf(scores) {
+  function rawScoreOf(scores) {
     return Math.round((1 - lifts(scores).reduce((rest, lift) => rest * (1 - lift), 1)) * 100);
+  }
+  // Mirrors criticalCap: Critical needs wide reach and severe harm or urgency.
+  function capOf(scores) {
+    if (scores.scale < 2) return 'local';
+    if (scores.severity < 3 && scores.urgency < 2) return 'notNow';
+    return '';
+  }
+  function scoreOf(scores) {
+    const raw = rawScoreOf(scores);
+    return capOf(scores) ? Math.min(raw, data.thresholds.critical - 1) : raw;
   }
   function levelOf(score) {
     const t = data.thresholds;
@@ -271,7 +284,11 @@
 
     const angles = data.angles.filter(a => story.impacts[a.key]);
     if (angles.length) {
-      const box = el('div', 'impacts');
+      // Folded like the score breakdown; the heading names the angles inside.
+      const box = el('details', 'impacts');
+      box.open = openImpact.has(entry.index);
+      box.addEventListener('toggle', () => { if (box.open) openImpact.add(entry.index); else openImpact.delete(entry.index); });
+      box.append(el('summary', 'impacts-head', T.impact + ' · ' + angles.map(a => a.label.toLowerCase()).join(', ')));
       for (const angle of angles) {
         const row = el('p', 'impact');
         row.append(el('span', 'angle angle-' + angle.key, angle.label), ' ' + story.impacts[angle.key]);
@@ -289,6 +306,10 @@
     rated.open = openWhy.has(entry.index);
     rated.addEventListener('toggle', () => { if (rated.open) openWhy.add(entry.index); else openWhy.delete(entry.index); });
     rated.append(el('summary', 'rated-head', fill(T.why, { level: data.levelLabels[level], score })));
+    const cap = capOf(story.scores);
+    if (cap && rawScoreOf(story.scores) >= data.thresholds.critical) {
+      rated.append(el('p', 'rated-cap', cap === 'local' ? T.cappedLocal : T.cappedNotNow));
+    }
     const list = el('ul');
     // Each criterion's share of the score, in proportion to how hard it pushed.
     const storyLifts = lifts(story.scores);

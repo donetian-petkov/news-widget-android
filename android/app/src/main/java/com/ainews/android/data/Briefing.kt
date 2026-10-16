@@ -322,6 +322,12 @@ object BriefingEngine {
      * The briefing page runs the same formula in the browser.
      */
     fun scoreOf(scores: CriteriaScores, weights: Map<Criterion, Double> = DEFAULT_WEIGHTS): Int {
+        val raw = rawScoreOf(scores, weights)
+        return if (criticalCap(scores) != null) minOf(raw, CRITICAL_AT - 1) else raw
+    }
+
+    /** The score before [criticalCap], for saying why a story was kept below Critical. */
+    fun rawScoreOf(scores: CriteriaScores, weights: Map<Criterion, Double> = DEFAULT_WEIGHTS): Int {
         val heaviest = Criterion.entries.maxOf { (weights[it] ?: 0.0).coerceAtLeast(0.0) }
         if (heaviest <= 0.0) return 0
         val unlifted = Criterion.entries.fold(1.0) { rest, key ->
@@ -330,6 +336,19 @@ object BriefingEngine {
             rest * (1 - lift)
         }
         return ((1 - unlifted) * 100).roundToInt()
+    }
+
+    enum class CriticalCap(val textKey: String) { Local("cappedLocal"), NotNow("cappedNotNow") }
+
+    /**
+     * Critical is kept for what reaches far and is either severe or happening now. A local
+     * crime or a background feature about one distant province can be High at most, however
+     * grim. The briefing page runs the same rule.
+     */
+    fun criticalCap(scores: CriteriaScores): CriticalCap? = when {
+        clamp(scores[Criterion.Scale] ?: 0) < 2 -> CriticalCap.Local
+        clamp(scores[Criterion.Severity] ?: 0) < 3 && clamp(scores[Criterion.Urgency] ?: 0) < 2 -> CriticalCap.NotNow
+        else -> null
     }
 
     fun levelOf(score: Int): PriorityLevel = when {
@@ -581,17 +600,17 @@ object BriefingEngine {
             LITERAL_FACTS_RULE,
             "Score four criteria from 0 (none) to 3 (strong):",
             "- severity: ${Criterion.Severity.text}. Sports, celebrity and entertainment score 0-1 even with dramatic words like \"war\" or \"attack\".",
-            "- scale: 1 one town or group, 2 a whole country, 3 several countries or the world.",
-            "- urgency: 3 happening now or a deadline within days, 2 this week, 1 slow-moving, 0 none.",
+            "- scale: 1 one town, group or province (also one far away), 2 a whole country, 3 several countries or the world.",
+            "- urgency: 3 happening now or a deadline within days, 2 this week, 1 slow-moving, 0 none. Features and background pieces about a long-running situation score 0-1.",
             "- interest: how surprising, new or revealing it is (a first, a record, an unexpected twist, a hidden fact). Routine statements and scheduled events score 0-1.",
             "For each criterion add \"<criterion>Why\": at most 15 words naming the fact, e.g. \"29 pupils killed when a school roof fell in Khyber Pakhtunkhwa\".",
             "Fill it for low scores too, saying what this story lacks, e.g. severityWhy \"A TV casting change; no one is harmed and no money is at stake\".",
             "Add \"impacts\" with one specific sentence (at most 25 words) per angle about THIS story:",
-            "- economic: prices, jobs, markets, budgets, trade, energy, investment. Always fill it; if the effect is indirect, explain the chain (e.g. strikes on refineries -> fuel supply -> pump prices).",
+            "- economic: prices, jobs, markets, budgets, trade, energy, investment. If the effect is indirect, explain the chain (e.g. strikes on refineries -> fuel supply -> pump prices).",
             "- political: governments, laws, elections, diplomacy, institutions.",
             "- social: daily life, health, education, rights, communities.",
             "- security: physical safety, conflict, crime, infrastructure.",
-            "Fill at least two angles for every story, the economic one and the next most affected; use \"\" only where there is truly no effect.",
+            "Fill only the angles where this story has a real effect, and use \"\" for the rest. Never write that there is no effect.",
             "Pick one dimension from: ${ImpactDimension.entries.joinToString(", ") { it.key }}.",
             "Write every text field in ${if (bulgarian) "Bulgarian" else "English"}.",
             "Return strict JSON only: {\"ratings\":[{\"id\":\"...\",\"severity\":0,\"severityWhy\":\"...\",\"scale\":0,\"scaleWhy\":\"...\",\"urgency\":0,\"urgencyWhy\":\"...\",\"interest\":0,\"interestWhy\":\"...\",\"dimension\":\"economy\",\"impacts\":{\"economic\":\"...\",\"political\":\"\",\"social\":\"\",\"security\":\"\"}}]}",
@@ -940,7 +959,8 @@ object BriefingEngine {
             .put("source", shortSource(story.source))
             .put("time", formatTime(story.publishedAt, language))
             .put("publishedMs", story.publishedAt)
-            .put("summary", story.summary)
+            // Older stored summaries may predate the clean-up at storage time.
+            .put("summary", SummaryText.cleanSummary(story.summary))
             .put("coverUrl", safeUrl(story.coverUrl))
             .put("dimension", rating.dimension.key)
             .put("dimensionLabel", BriefingText.of(language).dimensions.getValue(rating.dimension))
@@ -1219,7 +1239,7 @@ data class BriefingPage(
     val pageText: Map<String, String> = BriefingText.English.page,
 ) {
     fun say(key: String, vararg values: Pair<String, Any>): String =
-        BriefingText.fill(pageText[key] ?: BriefingText.English.page[key].orEmpty(), *values)
+        BriefingText.fill(pageText[key] ?: text.page[key] ?: BriefingText.English.page[key].orEmpty(), *values)
 }
 
 data class RankedStory(val story: PageStory, val score: Int, val level: PriorityLevel)
@@ -1293,7 +1313,7 @@ object BriefingPageReader {
             source = json.optString("source"),
             time = json.optString("time"),
             publishedMs = json.optLong("publishedMs"),
-            summary = json.optString("summary"),
+            summary = SummaryText.cleanSummary(json.optString("summary")),
             coverUrl = json.optString("coverUrl"),
             dimension = dimension,
             dimensionLabel = json.optString("dimensionLabel").ifBlank { text.dimensions.getValue(dimension) },
