@@ -198,10 +198,10 @@
   function rawScoreOf(scores) {
     return Math.round((1 - lifts(scores).reduce((rest, lift) => rest * (1 - lift), 1)) * 100);
   }
-  // Mirrors criticalCap: Critical needs wide reach and severe harm or urgency.
+  // Mirrors criticalCap: Critical needs urgency, and severe harm or country-wide reach.
   function capOf(scores) {
-    if (scores.scale < 2) return 'local';
-    if (scores.severity < 3 && scores.urgency < 2) return 'notNow';
+    if (scores.urgency < 2) return 'notNow';
+    if (scores.severity < 3 && scores.scale < 2) return 'minor';
     return '';
   }
   function scoreOf(scores) {
@@ -308,7 +308,7 @@
     rated.append(el('summary', 'rated-head', fill(T.why, { level: data.levelLabels[level], score })));
     const cap = capOf(story.scores);
     if (cap && rawScoreOf(story.scores) >= data.thresholds.critical) {
-      rated.append(el('p', 'rated-cap', cap === 'local' ? T.cappedLocal : T.cappedNotNow));
+      rated.append(el('p', 'rated-cap', cap === 'minor' ? T.cappedMinor : T.cappedNotNow));
     }
     const list = el('ul');
     // Each criterion's share of the score, in proportion to how hard it pushed.

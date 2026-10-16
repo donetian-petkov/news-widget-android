@@ -103,7 +103,9 @@ class BriefingEngineTest {
     fun oneStrongCriterionCarriesAStoryAndMoreLiftItFurther() {
         assertEquals(65, BriefingEngine.scoreOf(scores(Criterion.Severity to 3)))
         assertEquals(PriorityLevel.High, BriefingEngine.levelOf(65))
-        assertTrue(BriefingEngine.scoreOf(scores(Criterion.Severity to 3, Criterion.Scale to 3)) > 80)
+        assertTrue(BriefingEngine.scoreOf(scores(Criterion.Severity to 3, Criterion.Scale to 3, Criterion.Urgency to 3)) > 80)
+        // Without anything happening now it stays just below Critical.
+        assertEquals(69, BriefingEngine.scoreOf(scores(Criterion.Severity to 3, Criterion.Scale to 3)))
         assertEquals(0, BriefingEngine.scoreOf(scores()))
         val onlyInterest = Criterion.entries.associateWith { if (it == Criterion.Interest) 5.0 else 0.0 }
         assertEquals(65, BriefingEngine.scoreOf(scores(Criterion.Interest to 3), onlyInterest))
@@ -422,20 +424,22 @@ class BriefingEngineTest {
     }
 
     @Test
-    fun keepsCriticalForWideNewsThatIsSevereOrUrgent() {
-        val wideAndSevere = scores(Criterion.Severity to 3, Criterion.Scale to 3, Criterion.Urgency to 3)
-        assertEquals(null, BriefingEngine.criticalCap(wideAndSevere))
-        assertEquals(PriorityLevel.Critical, BriefingEngine.levelOf(BriefingEngine.scoreOf(wideAndSevere)))
-        // A grim local crime: as strong as it gets everywhere but reach.
-        val local = scores(Criterion.Severity to 3, Criterion.Scale to 1, Criterion.Urgency to 3, Criterion.Interest to 3)
-        assertEquals(BriefingEngine.CriticalCap.Local, BriefingEngine.criticalCap(local))
-        assertTrue(BriefingEngine.rawScoreOf(local) >= BriefingEngine.CRITICAL_AT)
-        assertEquals(BriefingEngine.CRITICAL_AT - 1, BriefingEngine.scoreOf(local))
-        // A background feature: wide, but neither severe nor urgent.
-        val feature = scores(Criterion.Severity to 2, Criterion.Scale to 3, Criterion.Urgency to 1, Criterion.Interest to 3, Criterion.Coverage to 3)
-        assertEquals(BriefingEngine.CriticalCap.NotNow, BriefingEngine.criticalCap(feature))
-        assertEquals(PriorityLevel.High, BriefingEngine.levelOf(BriefingEngine.scoreOf(feature)))
-        assertEquals("Под „Критично“: засяга само едно място.", BriefingText.Bulgarian.page[BriefingEngine.CriticalCap.Local.textKey])
+    fun letsASevereLocalEventHappeningNowBeCriticalButNotAGrimBackgroundFeature() {
+        fun rated(severity: Int, scale: Int, urgency: Int) = scores(
+            Criterion.Severity to severity, Criterion.Scale to scale, Criterion.Urgency to urgency,
+            Criterion.Interest to 2, Criterion.Coverage to 2,
+        )
+        // A body found and a suspect held today, in one town.
+        assertEquals(null, BriefingEngine.criticalCap(rated(3, 1, 3)))
+        assertEquals(PriorityLevel.Critical, BriefingEngine.levelOf(BriefingEngine.scoreOf(rated(3, 1, 3))))
+        // Child marriages in one far province, a long-running situation.
+        assertEquals(BriefingEngine.CriticalCap.NotNow, BriefingEngine.criticalCap(rated(3, 1, 1)))
+        val wideFeature = rated(3, 3, 1) + (Criterion.Interest to 3)
+        assertTrue(BriefingEngine.rawScoreOf(wideFeature) >= BriefingEngine.CRITICAL_AT)
+        assertFalse(BriefingEngine.levelOf(BriefingEngine.scoreOf(wideFeature)) == PriorityLevel.Critical)
+        // Happening now but minor and local.
+        assertEquals(BriefingEngine.CriticalCap.Minor, BriefingEngine.criticalCap(rated(2, 1, 3)))
+        assertEquals("Под „Критично“: местна новина без тежки последици.", BriefingText.Bulgarian.page[BriefingEngine.CriticalCap.Minor.textKey])
         assertEquals("Impact", BriefingText.English.page["impact"])
     }
 

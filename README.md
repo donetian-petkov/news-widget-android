@@ -82,7 +82,7 @@ Implemented so far:
   social and security impact. The AI merges reports of one event and groups
   stories about one situation into a framed storyline, each with its reason,
   and writes an "At a glance" summary at the top; impact notes and score breakdowns fold away,
-  Critical needs national or wider reach plus severe harm or urgency,
+  Critical needs something happening now plus severe harm or country-wide reach,
   and sliders set what counts most. Page and labels follow the language of the
   headlines (Bulgarian or English). Briefings are written only when asked for,
   with AI whenever a key is set even if the AI toggle is off; the widget's

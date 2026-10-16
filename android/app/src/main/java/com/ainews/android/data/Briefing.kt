@@ -338,16 +338,17 @@ object BriefingEngine {
         return ((1 - unlifted) * 100).roundToInt()
     }
 
-    enum class CriticalCap(val textKey: String) { Local("cappedLocal"), NotNow("cappedNotNow") }
+    enum class CriticalCap(val textKey: String) { NotNow("cappedNotNow"), Minor("cappedMinor") }
 
     /**
-     * Critical is kept for what reaches far and is either severe or happening now. A local
-     * crime or a background feature about one distant province can be High at most, however
-     * grim. The briefing page runs the same rule.
+     * Critical is kept for what is happening now (or due within days) and is either severe or
+     * reaches a whole country. A killing under investigation today qualifies even when local;
+     * a background feature about a long-running situation, however grim, is High at most.
+     * The briefing page runs the same rule.
      */
     fun criticalCap(scores: CriteriaScores): CriticalCap? = when {
-        clamp(scores[Criterion.Scale] ?: 0) < 2 -> CriticalCap.Local
-        clamp(scores[Criterion.Severity] ?: 0) < 3 && clamp(scores[Criterion.Urgency] ?: 0) < 2 -> CriticalCap.NotNow
+        clamp(scores[Criterion.Urgency] ?: 0) < 2 -> CriticalCap.NotNow
+        clamp(scores[Criterion.Severity] ?: 0) < 3 && clamp(scores[Criterion.Scale] ?: 0) < 2 -> CriticalCap.Minor
         else -> null
     }
 
