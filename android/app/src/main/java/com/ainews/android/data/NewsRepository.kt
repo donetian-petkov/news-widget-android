@@ -45,6 +45,7 @@ object NewsRepository {
 
     /** AI ratings per story, so the daily briefing and repeat runs do not pay for them again. */
     private val briefingAiRatings = java.util.concurrent.ConcurrentHashMap<String, AiStoryRating>()
+    private lateinit var briefingRatingsFile: java.io.File
     private val refreshLock = java.util.concurrent.Semaphore(1)
     private val rssFeedFetcher = RssFeedFetcher()
     private val remoteBackendClient = RemoteBackendClient()
@@ -129,6 +130,11 @@ object NewsRepository {
         runtimePreferences = RuntimePreferences(appContext)
         secureProviderKeyStore = SecureProviderKeyStore(appContext)
         briefingStore = BriefingStore(java.io.File(appContext.filesDir, "briefings"))
+        // Story ratings survive the app being closed, so a repeat briefing keeps its order.
+        briefingRatingsFile = java.io.File(appContext.filesDir, "briefing-ratings.json")
+        runCatching { BriefingEngine.parseAiRatings(briefingRatingsFile.readText()) }
+            .getOrDefault(emptyList())
+            .forEach { briefingAiRatings[it.id] = it }
         _state.update { it.copy(briefings = briefingStore.list()) }
         modelCatalogStore = ModelCatalogStore(java.io.File(appContext.filesDir, "model-catalog.json"))
         val savedCatalog = modelCatalogStore.load()
@@ -1504,6 +1510,12 @@ object NewsRepository {
                 check(fresh.isNotEmpty()) { "AI returned no ratings" }
                 if (briefingAiRatings.size > 3000) briefingAiRatings.clear()
                 fresh.forEach { briefingAiRatings[cacheKey(it.id)] = it }
+                runCatching {
+                    // Stored under the cache key, so the language stays part of it.
+                    val tmp = java.io.File(briefingRatingsFile.path + ".tmp")
+                    tmp.writeText(BriefingEngine.ratingsJson(briefingAiRatings.map { (key, rating) -> rating.copy(id = key) }))
+                    tmp.renameTo(briefingRatingsFile)
+                }
                 cached + fresh
             }
         }

@@ -688,6 +688,19 @@ object BriefingEngine {
         }
     }
 
+    /** Ratings in the same JSON the AI returns, so parseAiRatings reads them back. */
+    fun ratingsJson(ratings: List<AiStoryRating>): String {
+        val list = org.json.JSONArray()
+        ratings.forEach { rating ->
+            val item = JSONObject().put("id", rating.id).put("dimension", rating.dimension.key)
+            AI_CRITERIA.forEach { key ->
+                item.put(key.key, rating.scores[key] ?: 0).put("${key.key}Why", rating.whys[key].orEmpty())
+            }
+            list.put(item)
+        }
+        return JSONObject().put("ratings", list).toString()
+    }
+
     private fun applyAiRating(rule: StoryRating, ai: AiStoryRating): StoryRating =
         rule.copy(
             scores = rule.scores + ai.scores,

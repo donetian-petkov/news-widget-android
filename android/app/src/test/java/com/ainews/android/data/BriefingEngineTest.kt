@@ -444,6 +444,12 @@ class BriefingEngineTest {
     }
 
     @Test
+    fun savedRatingsReadBackTheSame() {
+        val ratings = BriefingEngine.parseAiRatings("{\"ratings\":[{\"id\":\"bg::a\",\"severity\":3,\"severityWhy\":\"29 killed\",\"scale\":2,\"urgency\":1,\"interest\":0,\"dimension\":\"security\"}]}")
+        assertEquals(ratings, BriefingEngine.parseAiRatings(BriefingEngine.ratingsJson(ratings)))
+    }
+
+    @Test
     fun cleansSummariesOnThePageAndNoLongerAsksForImpacts() = runBlocking {
         val briefing = BriefingEngine.build(
             stories = listOf(story(title = "Airports close in Rome", summary = "Airports closed.\nFlights were")),
