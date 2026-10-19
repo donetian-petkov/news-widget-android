@@ -24,8 +24,7 @@ import java.text.DateFormat
 import java.util.Date
 
 /**
- * Copies a story card to the clipboard for sharing, as the Mac widget does: a picture of the
- * card for apps that take images and the same text with the link for apps that take text.
+ * Copies a picture of a story card to the clipboard for sharing, as the Mac widget does.
  */
 object StoryCardClip {
     private const val WIDTH = 1008
@@ -36,12 +35,10 @@ object StoryCardClip {
         val text = text(story, title)
         val uri = runCatching { saveCard(context, render(story, title, loadCover(story.imageUrl))) }.getOrNull()
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        // Only the picture: with text alongside, most apps paste the text instead. The text is
+        // kept only for when the picture could not be made.
         val clip = if (uri != null) {
-            // One item with both: image-taking apps read the picture, text fields read the text.
-            ClipData(
-                ClipDescription(title, arrayOf(ClipDescription.MIMETYPE_TEXT_PLAIN, "image/png")),
-                ClipData.Item(text, null, uri),
-            )
+            ClipData(ClipDescription(title, arrayOf("image/png")), ClipData.Item(uri))
         } else {
             ClipData.newPlainText(title, text)
         }
