@@ -1237,6 +1237,27 @@ object NewsRepository {
     }
 
     /** Runs a single AI action for one story, so the user can ask for just what they need. */
+    /**
+     * Research reads the article and up to three other outlets' reports of the same event from
+     * the last day and a half, closest in time first.
+     */
+    private fun research(apiKey: String, model: String, story: NewsStory, stories: List<NewsStory>): String {
+        val picked = mutableListOf<NewsStory>()
+        stories
+            .filter { it.id != story.id && it.sourceUrl != story.sourceUrl && it.source != story.source }
+            .filter { kotlin.math.abs(it.publishedAt - story.publishedAt) <= 36 * 3_600_000L }
+            .filter { BriefingEngine.sameEventTitles(story.neutralTitle ?: story.title, it.neutralTitle ?: it.title) }
+            .sortedBy { kotlin.math.abs(it.publishedAt - story.publishedAt) }
+            .forEach { if (picked.size < 3 && picked.none { other -> other.source == it.source }) picked.add(it) }
+        val reports = picked.mapNotNull { other ->
+            val text = com.ainews.android.network.ArticleText.fetch(other.sourceUrl, 2_500).ifBlank { other.summary.take(600) }
+            text.takeIf { it.isNotBlank() }?.let { com.ainews.android.network.OtherReport(other.source, other.title, it) }
+        }
+        val article = com.ainews.android.network.ArticleText.fetch(story.sourceUrl, 6_000)
+        val bulgarian = CYRILLIC.containsMatchIn(story.title)
+        return aiEnrichmentClient.researchWithOpenAi(apiKey, model, story, article, reports, bulgarian)
+    }
+
     suspend fun runStoryAction(storyId: String, action: StoryAiAction) {
         val current = _state.value
         val story = current.stories.firstOrNull { it.id == storyId } ?: return
@@ -1271,7 +1292,11 @@ object NewsRepository {
                         StoryAiAction.Research -> ModelKind.Research
                         StoryAiAction.Translation, StoryAiAction.NeutralTitle -> ModelKind.Ask
                     }
-                    aiEnrichmentClient.runActionWithOpenAi(apiKey!!, modelFor(kind), story, action)
+                    if (action == StoryAiAction.Research) {
+                        research(apiKey!!, modelFor(kind), story, current.stories)
+                    } else {
+                        aiEnrichmentClient.runActionWithOpenAi(apiKey!!, modelFor(kind), story, action)
+                    }
                 } else {
                     aiEnrichmentClient.runActionLocally(story, action)
                 }

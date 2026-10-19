@@ -563,6 +563,19 @@ object BriefingEngine {
     }
 
     /**
+     * Whether two headlines probably report the same event, by the grouping rule below: most
+     * of their words in common, or two names plus one more word. It is a guess, so whoever
+     * uses the match should be able to tell an unrelated story apart.
+     */
+    fun sameEventTitles(a: String, b: String): Boolean {
+        val one = titleKeys(a)
+        val two = titleKeys(b)
+        val shared = one.keys.count { it in two.keys }
+        val union = (one.keys + two.keys).size.coerceAtLeast(1)
+        return (shared >= 2 && shared.toDouble() / union >= 0.35) || (one.names.count { it in two.names } >= 2 && shared >= 3)
+    }
+
+    /**
      * Groups stories whose titles report the same event; the most informative one leads.
      * [loose] also merges titles that only share names, which is a guess. [exactOnly] merges
      * only the same link or title: when the AI groups the briefing it gets the word matches

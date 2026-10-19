@@ -3,6 +3,7 @@ package com.ainews.android.network
 import com.ainews.android.data.BriefingEngine
 import com.ainews.android.data.NewsStory
 import com.ainews.android.data.StoryAiAction
+import com.ainews.android.data.SummaryText
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -25,6 +26,9 @@ data class AiCompletion(
     val text: String,
     val usage: TokenUsage,
 )
+
+/** Another outlet's report of the same event, for research. */
+data class OtherReport(val source: String, val title: String, val text: String)
 
 class AiEnrichmentClient {
     fun enrichWithOpenAi(apiKey: String, model: String, story: NewsStory): StoryEnrichment {
@@ -72,6 +76,48 @@ class AiEnrichmentClient {
         val json = respond(apiKey, model, input, maxOutputTokens = 700, temperature = 0.2, readTimeoutMs = 30_000)
         lastTokenUsage = json.readUsage()
         return json.optString("output_text").trim().ifBlank { json.firstOutputText() }
+    }
+
+    /**
+     * A research note from the article itself and other outlets' reports of the same event, as
+     * on the Mac. It leaves out what the one-line summary already says and keeps whole sentences.
+     */
+    fun researchWithOpenAi(
+        apiKey: String,
+        model: String,
+        story: NewsStory,
+        articleText: String,
+        otherReports: List<OtherReport>,
+        bulgarian: Boolean,
+    ): String {
+        val instruction = listOf(
+            "Write a concise but detailed research note (1–2 paragraphs, at most 150 words).",
+            "Cover: what happened, who is involved, why it matters, what to watch next.",
+            "The reader has already seen the one-line summary given below. Do not repeat it: start with what it leaves out.",
+            "When reports from other outlets are given, compare them with the main article: name the outlet for any fact only it " +
+                "reports and for any figure that differs between them. Ignore a report that turns out to be about a different event.",
+            "Be explicit when context is insufficient.",
+            "End all paragraphs with complete sentences. Do not cut off mid-sentence.",
+            if (bulgarian) "End with: \"Увереност: ниска/средна/висока\"." else "End with: \"Confidence: Low/Medium/High\".",
+            if (bulgarian) "If it is low, add one more sentence starting with \"Какво да се провери:\" describing what sources/details are missing."
+            else "If Confidence is Low, add one more sentence starting with \"What to verify:\" describing what sources/details are missing.",
+            "Neutral tone. No quotes. No bullet points.",
+            BriefingEngine.LITERAL_FACTS_RULE,
+            if (bulgarian) "Write in Bulgarian." else "Write in English.",
+        ).joinToString(" ")
+        val input = buildString {
+            appendLine(instruction)
+            appendLine("Source: ${story.source}")
+            appendLine("Headline: ${story.title}")
+            appendLine("Link: ${story.sourceUrl}")
+            if (story.summary.isNotBlank()) appendLine("Summary the reader has seen: ${story.summary}")
+            if (articleText.isNotBlank()) appendLine("Article text (may be partial): $articleText")
+            otherReports.forEach { appendLine("Report from ${it.source}: ${it.title}"); appendLine(it.text) }
+        }
+        val json = respond(apiKey, model, input, maxOutputTokens = 700, temperature = 0.25, readTimeoutMs = 60_000)
+        lastTokenUsage = json.readUsage()
+        val text = json.optString("output_text").trim().ifBlank { json.firstOutputText() }
+        return text.split(Regex("\\n\\s*\\n")).map { SummaryText.wholeSentences(it) }.filter { it.isNotBlank() }.joinToString("\n\n")
     }
 
     /**

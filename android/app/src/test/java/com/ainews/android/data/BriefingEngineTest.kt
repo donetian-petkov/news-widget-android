@@ -444,6 +444,16 @@ class BriefingEngineTest {
     }
 
     @Test
+    fun researchFindsOtherOutletsOnTheSameEvent() {
+        assertTrue(BriefingEngine.sameEventTitles("Путин предложи среща с Тръмп и Си за бъдещето на Украйна", "Без Зеленски и Европа: Путин опитва да организира среща с Тръмп и Си Дзинпин за Украйна"))
+        assertFalse(BriefingEngine.sameEventTitles("Зеленски обсъди войната с европейските лидери", "Зеленски посети болница в Лвов"))
+        assertEquals(
+            "Floods hit Istanbul & three died.",
+            com.ainews.android.network.ArticleText.fromHtml("<html><script>x()</script><nav>Menu</nav><article><p>Floods hit Istanbul &amp; three</p><p>died.</p></article></html>"),
+        )
+    }
+
+    @Test
     fun savedRatingsReadBackTheSame() {
         val ratings = BriefingEngine.parseAiRatings("{\"ratings\":[{\"id\":\"bg::a\",\"severity\":3,\"severityWhy\":\"29 killed\",\"scale\":2,\"urgency\":1,\"interest\":0,\"dimension\":\"security\"}]}")
         assertEquals(ratings, BriefingEngine.parseAiRatings(BriefingEngine.ratingsJson(ratings)))
