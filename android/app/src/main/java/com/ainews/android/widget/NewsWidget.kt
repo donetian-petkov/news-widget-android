@@ -911,6 +911,16 @@ private fun WidgetStoryRow(
                         compact = true,
                     )
                     WidgetIconButton(
+                        iconRes = R.drawable.ic_copy,
+                        contentDescription = "Copy card",
+                        action = actionRunCallback<CopyStoryLinkAction>(
+                            actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
+                        ),
+                        backgroundRes = buttonBackground,
+                        tint = palette.muted,
+                        compact = true,
+                    )
+                    WidgetIconButton(
                         iconRes = R.drawable.ic_hide,
                         contentDescription = "Hide story",
                         action = actionRunCallback<HideStoryAction>(
