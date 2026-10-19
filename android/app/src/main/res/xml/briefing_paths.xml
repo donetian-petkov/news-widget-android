@@ -2,4 +2,6 @@
 <!-- Saved briefing pages, shared read-only with the browser for "Open in browser". -->
 <paths>
     <files-path name="briefings" path="briefings/" />
+    <!-- The story card copied from a widget, read by the app it is pasted into. -->
+    <files-path name="clips" path="clips/" />
 </paths>

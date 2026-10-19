@@ -2,8 +2,6 @@ package com.ainews.android.widget
 
 import android.content.Context
 import android.content.res.Configuration
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -992,7 +990,7 @@ private fun WidgetStoryRow(
                     if (showExtraActions) {
                         WidgetIconButton(
                             iconRes = R.drawable.ic_copy,
-                            contentDescription = "Copy link",
+                            contentDescription = "Copy card",
                             action = actionRunCallback<CopyStoryLinkAction>(
                                 actionParametersOf(storyIdKey to story.id, appWidgetIdKey to widgetId),
                             ),
@@ -1744,10 +1742,9 @@ class CopyStoryLinkAction : ActionCallback {
     ) {
         val storyId = parameters[storyIdKey] ?: return
         val story = NewsRepository.state.value.stories.firstOrNull { it.id == storyId } ?: return
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText(story.title, story.sourceUrl))
+        withContext(Dispatchers.IO) { StoryCardClip.copy(context, story) }
         withContext(Dispatchers.Main) {
-            Toast.makeText(context, "Story link copied", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Story card copied", Toast.LENGTH_SHORT).show()
         }
     }
 }
